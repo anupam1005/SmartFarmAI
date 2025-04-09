@@ -1,509 +1,867 @@
-import random
-import math
+import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta
+import logging
 
-def get_water_requirements(crop_type, growth_stage, area_size, soil_type, temperature, rainfall):
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def calculate_resource_usage_projections(current_resources, usage_history, days_to_project=30):
     """
-    Calculate estimated water requirements for a crop
+    Calculate resource usage projections based on historical usage patterns
     
     Args:
-        crop_type: Type of crop
-        growth_stage: Current growth stage of the crop
-        area_size: Size of the area in hectares
-        soil_type: Type of soil
-        temperature: Current temperature in Celsius
-        rainfall: Recent rainfall in mm
+        current_resources: Dictionary of {resource_id: {name, type, quantity, unit}}
+        usage_history: DataFrame with columns [resource_id, date, quantity]
+        days_to_project: Number of days to project into the future
         
     Returns:
-        Water requirement in liters
+        Dictionary with projection results
     """
-    # Base water requirements in mm per day for different crops
-    # These are simplified values for demonstration
-    base_requirements = {
-        "Maize": 6.0,
-        "Rice": 10.0,
-        "Wheat": 5.0,
-        "Soybeans": 6.5,
-        "Tomatoes": 7.0,
-        "Potatoes": 5.5,
-        "Beans": 4.5,
-        "Cotton": 7.0,
-        "Sunflower": 5.5,
-        "Cassava": 4.0,
-        "Default": 6.0  # Default value for crops not in the list
+    if usage_history.empty:
+        return {
+            "projections": {},
+            "depletion_alerts": [],
+            "stats": {}
+        }
+    
+    # Group by resource_id and calculate stats
+    stats = {}
+    projections = {}
+    depletion_alerts = []
+    
+    for resource_id, resource_data in current_resources.items():
+        # Filter history for this resource
+        resource_history = usage_history[usage_history['resource_id'] == resource_id]
+        
+        if resource_history.empty:
+            continue
+        
+        # Calculate daily average usage (last 30 days)
+        cutoff_date = datetime.now() - timedelta(days=30)
+        recent_usage = resource_history[resource_history['date'] >= cutoff_date]
+        
+        if not recent_usage.empty:
+            # Calculate average daily usage
+            total_usage = recent_usage['quantity'].sum()
+            days_span = max((datetime.now() - recent_usage['date'].min()).days, 1)
+            daily_avg = total_usage / days_span
+            
+            # Calculate variability (standard deviation)
+            if len(recent_usage) > 1:
+                # Group by date to handle multiple usages on the same day
+                daily_usage = recent_usage.groupby(recent_usage['date'].dt.date)['quantity'].sum()
+                variability = daily_usage.std() if len(daily_usage) > 1 else 0
+            else:
+                variability = 0
+            
+            # Project future usage
+            current_quantity = resource_data['quantity']
+            days_until_depletion = current_quantity / daily_avg if daily_avg > 0 else float('inf')
+            projected_quantity = max(0, current_quantity - (daily_avg * days_to_project))
+            
+            # Create projection data
+            projections[resource_id] = {
+                'name': resource_data['name'],
+                'type': resource_data['type'],
+                'current_quantity': current_quantity,
+                'unit': resource_data['unit'],
+                'daily_usage': daily_avg,
+                'projected_quantity': projected_quantity,
+                'days_until_depletion': days_until_depletion
+            }
+            
+            # Add depletion alerts
+            if 0 < days_until_depletion < 14:  # Alert if depletion within 2 weeks
+                depletion_alerts.append({
+                    'resource_id': resource_id,
+                    'name': resource_data['name'],
+                    'days_remaining': days_until_depletion,
+                    'current_quantity': current_quantity,
+                    'unit': resource_data['unit'],
+                    'severity': 'high' if days_until_depletion < 7 else 'medium'
+                })
+            
+            # Store stats
+            stats[resource_id] = {
+                'daily_avg': daily_avg,
+                'variability': variability,
+                'total_usage_30d': total_usage,
+                'usage_trend': _calculate_usage_trend(resource_history)
+            }
+    
+    return {
+        "projections": projections,
+        "depletion_alerts": sorted(depletion_alerts, key=lambda x: x['days_remaining']),
+        "stats": stats
     }
-    
-    # Growth stage factors
-    # Different growth stages have different water requirements
-    stage_factors = {
-        "Germination": 0.5,
-        "Vegetative": 0.8,
-        "Flowering": 1.2,
-        "Yield Formation": 1.0,
-        "Ripening": 0.6,
-        "Default": 0.8  # Default value
-    }
-    
-    # Soil type factors
-    # Different soils retain water differently
-    soil_factors = {
-        "Clay": 0.8,  # Clay retains water well
-        "Clay Loam": 0.85,
-        "Loam": 1.0,  # Baseline
-        "Sandy Loam": 1.2,
-        "Sandy": 1.5,  # Sandy soils require more water
-        "Silt Loam": 0.9,
-        "Default": 1.0  # Default value
-    }
-    
-    # Get base requirement for the crop or use default
-    base_req = base_requirements.get(crop_type, base_requirements["Default"])
-    
-    # Get factor for growth stage or use default
-    stage_factor = stage_factors.get(growth_stage, stage_factors["Default"])
-    
-    # Get factor for soil type or use default
-    soil_factor = soil_factors.get(soil_type, soil_factors["Default"])
-    
-    # Temperature adjustment (higher temperatures increase water needs)
-    temp_factor = 1.0
-    if temperature > 30:
-        temp_factor = 1.3
-    elif temperature > 25:
-        temp_factor = 1.2
-    elif temperature > 20:
-        temp_factor = 1.1
-    elif temperature < 10:
-        temp_factor = 0.8
-    
-    # Calculate daily water requirement in mm
-    daily_req_mm = base_req * stage_factor * soil_factor * temp_factor
-    
-    # Adjust for recent rainfall
-    effective_rainfall = min(rainfall, daily_req_mm)  # Only count rainfall up to the daily requirement
-    adjusted_req_mm = max(0, daily_req_mm - effective_rainfall)
-    
-    # Convert to liters per hectare per day
-    # 1 mm of water on 1 hectare = 10,000 liters
-    liters_per_ha = adjusted_req_mm * 10000
-    
-    # Calculate total requirement for the area
-    total_liters = liters_per_ha * area_size
-    
-    return round(total_liters)
 
-def get_fertilizer_requirements(crop_type, growth_stage, area_size, soil_nutrients):
+def _calculate_usage_trend(usage_data, days=30):
     """
-    Calculate fertilizer requirements based on crop needs and soil conditions
+    Calculate the trend in resource usage over time
     
     Args:
-        crop_type: Type of crop
-        growth_stage: Current growth stage
-        area_size: Area size in hectares
-        soil_nutrients: Dictionary with current soil nutrient levels
+        usage_data: DataFrame with columns [date, quantity]
+        days: Number of days to analyze
         
     Returns:
-        Dictionary with fertilizer recommendations
+        Trend value (positive = increasing usage, negative = decreasing usage)
     """
-    # Base nutrient requirements in kg/ha for different crops
-    # Format: (N, P, K) - Nitrogen, Phosphorus, Potassium
-    base_requirements = {
-        "Maize": {"N": 180, "P": 80, "K": 100},
-        "Rice": {"N": 150, "P": 60, "K": 80},
-        "Wheat": {"N": 120, "P": 60, "K": 60},
-        "Soybeans": {"N": 20, "P": 60, "K": 80},  # Soybeans fix their own nitrogen
-        "Tomatoes": {"N": 200, "P": 150, "K": 250},
-        "Potatoes": {"N": 180, "P": 100, "K": 220},
-        "Beans": {"N": 50, "P": 100, "K": 100},
-        "Cotton": {"N": 120, "P": 80, "K": 80},
-        "Sunflower": {"N": 100, "P": 50, "K": 100},
-        "Cassava": {"N": 80, "P": 40, "K": 120},
-        "Default": {"N": 120, "P": 60, "K": 80}
-    }
+    cutoff_date = datetime.now() - timedelta(days=days)
+    recent_data = usage_data[usage_data['date'] >= cutoff_date]
     
-    # Growth stage nutrient importance factors
-    # Different growth stages need different nutrient ratios
-    stage_importance = {
-        "Germination": {"N": 0.2, "P": 1.0, "K": 0.3},
-        "Vegetative": {"N": 1.0, "P": 0.6, "K": 0.6},
-        "Flowering": {"N": 0.7, "P": 0.8, "K": 1.0},
-        "Yield Formation": {"N": 0.5, "P": 0.4, "K": 0.8},
-        "Ripening": {"N": 0.2, "P": 0.3, "K": 0.5},
-        "Default": {"N": 0.7, "P": 0.7, "K": 0.7}
-    }
+    if len(recent_data) < 5:  # Need at least 5 data points for meaningful trend
+        return 0
     
-    # Get base requirements for the crop
-    crop_req = base_requirements.get(crop_type, base_requirements["Default"])
+    # Group by date
+    daily_usage = recent_data.groupby(recent_data['date'].dt.date)['quantity'].sum().reset_index()
     
-    # Get importance factors for the growth stage
-    importance = stage_importance.get(growth_stage, stage_importance["Default"])
+    if len(daily_usage) < 3:  # Need at least 3 days
+        return 0
     
-    # Calculate adjusted requirements based on growth stage
-    adjusted_req = {
-        "N": crop_req["N"] * importance["N"],
-        "P": crop_req["P"] * importance["P"],
-        "K": crop_req["K"] * importance["K"]
-    }
+    # Convert dates to numeric (days since first date)
+    first_date = daily_usage['date'].min()
+    daily_usage['day_num'] = [(d - first_date).days for d in daily_usage['date']]
     
-    # Adjust for current soil nutrient levels (if provided)
-    # Soil nutrients should be in the same units (e.g., kg/ha)
-    recommended_application = {}
+    # Simple linear regression
+    x = daily_usage['day_num'].values
+    y = daily_usage['quantity'].values
     
-    for nutrient in ["N", "P", "K"]:
-        if soil_nutrients and nutrient.lower() in soil_nutrients:
-            # Calculate deficiency
-            deficiency = max(0, adjusted_req[nutrient] - soil_nutrients[nutrient.lower()])
-            recommended_application[nutrient] = deficiency
+    if len(x) < 2 or len(y) < 2:
+        return 0
+    
+    try:
+        # Calculate slope using numpy's polyfit
+        slope = np.polyfit(x, y, 1)[0]
+        
+        # Normalize slope by average daily usage
+        avg_usage = np.mean(y)
+        if avg_usage > 0:
+            normalized_slope = slope / avg_usage
         else:
-            # If no soil test data, use adjusted requirement
-            recommended_application[nutrient] = adjusted_req[nutrient]
-    
-    # Calculate total quantities needed for the given area
-    for nutrient in recommended_application:
-        recommended_application[nutrient] *= area_size
-        recommended_application[nutrient] = round(recommended_application[nutrient], 1)
-    
-    # Add fertilizer type recommendations
-    fertilizer_types = []
-    
-    if recommended_application["N"] > 0:
-        fertilizer_types.append("Nitrogen fertilizer (e.g., Urea or Ammonium Nitrate)")
-    
-    if recommended_application["P"] > 0:
-        fertilizer_types.append("Phosphate fertilizer (e.g., Triple Superphosphate)")
-    
-    if recommended_application["K"] > 0:
-        fertilizer_types.append("Potassium fertilizer (e.g., Potassium Chloride)")
-    
-    if len(fertilizer_types) > 1:
-        fertilizer_types.append("Complete NPK fertilizer (for balanced application)")
-    
-    # Create the final recommendation
-    recommendation = {
-        "nutrient_requirements": recommended_application,
-        "fertilizer_types": fertilizer_types,
-        "application_timing": get_application_timing(growth_stage),
-        "notes": get_application_notes(crop_type, growth_stage)
-    }
-    
-    return recommendation
+            normalized_slope = 0
+            
+        return normalized_slope
+    except Exception as e:
+        logger.error(f"Error calculating usage trend: {e}")
+        return 0
 
-def calculate_water_efficiency(water_usage, crop_yield, crop_type, area_size):
+def calculate_resource_efficiency(resource_usage, yields, field_data):
     """
-    Calculate water use efficiency
+    Calculate resource utilization efficiency
     
     Args:
-        water_usage: Total water used in liters
-        crop_yield: Crop yield in kg
-        crop_type: Type of crop
-        area_size: Area size in hectares
+        resource_usage: DataFrame with [resource_id, field_id, date, quantity, resource_type]
+        yields: DataFrame with [field_id, harvest_date, yield_amount]
+        field_data: Dictionary of {field_id: {area_size, crop}}
         
     Returns:
-        Water efficiency score (0-100)
+        Dictionary with efficiency metrics
     """
-    # Convert liters to cubic meters for standard calculations
-    water_usage_m3 = water_usage / 1000
+    if resource_usage.empty or yields.empty:
+        return {
+            "efficiency_metrics": {},
+            "field_metrics": {},
+            "benchmark_comparison": {}
+        }
     
-    # Convert to water usage per hectare
-    water_usage_per_ha = water_usage_m3 / area_size if area_size > 0 else water_usage_m3
+    # Group resource usage by field and type
+    field_resource_usage = resource_usage.groupby(['field_id', 'resource_type'])['quantity'].sum().reset_index()
     
-    # Crop yield per hectare
-    yield_per_ha = crop_yield / area_size if area_size > 0 else crop_yield
-    
-    # Calculate water productivity (kg crop per cubic meter of water)
-    water_productivity = yield_per_ha / water_usage_per_ha if water_usage_per_ha > 0 else 0
-    
-    # Benchmark water productivity values for different crops (kg/m³)
-    # These are simplified and would be more precise in a real system
-    benchmarks = {
-        "Maize": 1.8,
-        "Rice": 0.7,  # Rice typically has lower water productivity
-        "Wheat": 1.2,
-        "Soybeans": 1.5,
-        "Tomatoes": 12.0,  # Vegetable crops typically have higher values
-        "Potatoes": 5.0,
-        "Beans": 1.2,
-        "Cotton": 0.3,  # Cotton typically has lower water productivity
-        "Sunflower": 0.9,
-        "Cassava": 3.0,
-        "Default": 1.5
+    # Calculate metrics for each field
+    field_metrics = {}
+    overall_metrics = {
+        'water_per_hectare': [],
+        'fertilizer_per_hectare': [],
+        'yield_per_hectare': [],
+        'water_per_yield': [],
+        'fertilizer_per_yield': []
     }
     
-    # Get benchmark for the crop
-    benchmark = benchmarks.get(crop_type, benchmarks["Default"])
+    for field_id, field_info in field_data.items():
+        # Extract field area and crop
+        area = field_info['area_size']
+        crop = field_info['crop']
+        
+        # Get resource usage for this field
+        field_usage = field_resource_usage[field_resource_usage['field_id'] == field_id]
+        
+        # Get yield for this field
+        field_yield = yields[yields['field_id'] == field_id]
+        
+        if field_usage.empty or field_yield.empty or area <= 0:
+            continue
+        
+        total_yield = field_yield['yield_amount'].sum()
+        
+        # Initialize metrics for this field
+        metrics = {
+            'field_id': field_id,
+            'crop': crop,
+            'area': area,
+            'total_yield': total_yield,
+            'yield_per_hectare': total_yield / area
+        }
+        
+        # Calculate resource usage per hectare and per yield unit
+        for _, row in field_usage.iterrows():
+            resource_type = row['resource_type']
+            quantity = row['quantity']
+            
+            usage_per_hectare = quantity / area
+            usage_per_yield = quantity / total_yield if total_yield > 0 else float('inf')
+            
+            metrics[f'{resource_type}_usage'] = quantity
+            metrics[f'{resource_type}_per_hectare'] = usage_per_hectare
+            metrics[f'{resource_type}_per_yield'] = usage_per_yield
+            
+            # Add to overall metrics for benchmarking
+            if resource_type == 'Water':
+                overall_metrics['water_per_hectare'].append(usage_per_hectare)
+                overall_metrics['water_per_yield'].append(usage_per_yield)
+            elif 'Fertilizer' in resource_type:
+                overall_metrics['fertilizer_per_hectare'].append(usage_per_hectare)
+                overall_metrics['fertilizer_per_yield'].append(usage_per_yield)
+        
+        overall_metrics['yield_per_hectare'].append(metrics['yield_per_hectare'])
+        field_metrics[field_id] = metrics
     
-    # Calculate efficiency ratio (actual/benchmark)
-    efficiency_ratio = water_productivity / benchmark if benchmark > 0 else 0
+    # Calculate benchmarks (averages across fields)
+    benchmarks = {}
+    for metric, values in overall_metrics.items():
+        if values:
+            benchmarks[metric] = {
+                'average': np.mean(values),
+                'min': np.min(values),
+                'max': np.max(values)
+            }
     
-    # Convert to a 0-100 score
-    # A ratio of 1.0 (meeting benchmark) gives a score of 70
-    # A ratio of 1.5 (exceeding benchmark by 50%) gives a score of 100
-    # A ratio of 0.5 (50% of benchmark) gives a score of 35
-    efficiency_score = min(100, max(0, efficiency_ratio * 70))
+    # Compare each field to benchmarks
+    benchmark_comparison = {}
+    for field_id, metrics in field_metrics.items():
+        comparison = {'field_id': field_id}
+        
+        if 'water_per_hectare' in metrics and 'water_per_hectare' in benchmarks:
+            comparison['water_efficiency'] = _calculate_efficiency_score(
+                metrics['water_per_hectare'], 
+                benchmarks['water_per_hectare']['average'],
+                lower_is_better=True
+            )
+            
+        if 'fertilizer_per_hectare' in metrics and 'fertilizer_per_hectare' in benchmarks:
+            comparison['fertilizer_efficiency'] = _calculate_efficiency_score(
+                metrics['fertilizer_per_hectare'], 
+                benchmarks['fertilizer_per_hectare']['average'],
+                lower_is_better=True
+            )
+            
+        if 'yield_per_hectare' in metrics and 'yield_per_hectare' in benchmarks:
+            comparison['yield_efficiency'] = _calculate_efficiency_score(
+                metrics['yield_per_hectare'], 
+                benchmarks['yield_per_hectare']['average'],
+                lower_is_better=False
+            )
+            
+        benchmark_comparison[field_id] = comparison
     
-    return round(efficiency_score)
+    return {
+        "efficiency_metrics": overall_metrics,
+        "field_metrics": field_metrics,
+        "benchmark_comparison": benchmark_comparison,
+        "benchmarks": benchmarks
+    }
 
-def get_water_saving_tips():
+def _calculate_efficiency_score(value, benchmark, lower_is_better=True):
     """
-    Get random water saving tips for farming
-    
-    Returns:
-        A water saving tip
-    """
-    tips = [
-        "Install drip irrigation systems to reduce water usage by up to 60% compared to sprinkler systems.",
-        "Water crops during early morning or evening to minimize evaporation losses.",
-        "Use soil moisture sensors to optimize irrigation timing and avoid overwatering.",
-        "Apply mulch around plants to reduce soil evaporation and weed growth.",
-        "Maintain irrigation systems regularly to prevent leaks and ensure uniform water distribution.",
-        "Consider deficit irrigation techniques for drought-tolerant crops during non-critical growth stages.",
-        "Implement rainwater harvesting systems to collect and store water during rainy seasons.",
-        "Plant windbreaks to reduce evaporation caused by wind.",
-        "Level fields properly to ensure uniform water distribution and prevent runoff.",
-        "Use conservation tillage practices to improve soil structure and water retention.",
-        "Choose drought-resistant crop varieties when appropriate for your climate.",
-        "Apply compost or organic matter to improve soil water-holding capacity.",
-        "Consider precision irrigation technologies that deliver water directly to plant roots.",
-        "Monitor weather forecasts to avoid irrigation before expected rainfall.",
-        "Recycle water when possible, such as using treated wastewater for appropriate crops."
-    ]
-    
-    return random.choice(tips)
-
-def get_fertilizer_application_tips():
-    """
-    Get random fertilizer application tips
-    
-    Returns:
-        A fertilizer application tip
-    """
-    tips = [
-        "Apply fertilizers based on soil test results to avoid over or under-application.",
-        "Use split application techniques for nitrogen fertilizers to reduce leaching losses.",
-        "Apply phosphorus and potassium fertilizers before planting for better utilization.",
-        "Consider precision application techniques to target fertilizers directly to plant roots.",
-        "Incorporate slow-release fertilizers to provide nutrients over a longer period.",
-        "Apply foliar fertilizers during critical growth stages for rapid nutrient uptake.",
-        "Maintain proper soil pH for optimal nutrient availability and fertilizer efficiency.",
-        "Avoid applying fertilizers before heavy rainfall to prevent runoff and leaching.",
-        "Calibrate fertilizer equipment regularly to ensure accurate application rates.",
-        "Consider using organic fertilizers to improve soil health and structure.",
-        "Apply micronutrients when deficiency symptoms appear or based on soil tests.",
-        "Implement crop rotation with legumes to reduce nitrogen fertilizer requirements.",
-        "Use fertigation (applying fertilizers through irrigation systems) for efficient nutrient delivery.",
-        "Consider variable rate application based on field productivity zones.",
-        "Avoid fertilizer applications near waterways to prevent water pollution."
-    ]
-    
-    return random.choice(tips)
-
-def get_application_timing(growth_stage):
-    """
-    Get fertilizer application timing recommendations based on growth stage
+    Calculate an efficiency score comparing a value to a benchmark
     
     Args:
-        growth_stage: Current growth stage of the crop
+        value: The value to evaluate
+        benchmark: The benchmark value to compare against
+        lower_is_better: Whether a lower value indicates better efficiency
         
     Returns:
-        Timing recommendation
+        Efficiency score (0-100)
     """
-    timing_recommendations = {
-        "Germination": "Apply phosphorus (P) fertilizer at or before planting. Limit nitrogen (N) application to starter levels only.",
-        "Vegetative": "Apply main nitrogen (N) fertilizers during this stage for maximum vegetative growth. Split into 2-3 applications for better efficiency.",
-        "Flowering": "Apply potassium (K) fertilizers to support flowering and early fruit development. Reduce nitrogen to prevent excessive vegetative growth.",
-        "Yield Formation": "Apply balanced fertilizers with emphasis on potassium (K) to support yield development. Consider foliar applications for quick nutrient uptake.",
-        "Ripening": "Limit fertilizer applications during ripening stage. Focus on micronutrients if deficiencies are observed.",
-        "Default": "Apply balanced fertilizers according to soil test results. Split nitrogen applications throughout the growing season."
-    }
+    if benchmark == 0:
+        return 50  # Default if benchmark is zero
     
-    return timing_recommendations.get(growth_stage, timing_recommendations["Default"])
+    if lower_is_better:
+        # For resources like water or fertilizer, using less is better
+        ratio = benchmark / value if value > 0 else 2  # Avoid division by zero
+        # Cap at 2x better than benchmark
+        ratio = min(ratio, 2)
+    else:
+        # For yields, higher is better
+        ratio = value / benchmark if benchmark > 0 else 2  # Avoid division by zero
+        # Cap at 2x better than benchmark
+        ratio = min(ratio, 2)
+    
+    # Convert to 0-100 scale
+    # 1.0 (equal to benchmark) = 50
+    # 0.5 (half as good) = 25
+    # 2.0 (twice as good) = 100
+    score = int(50 * ratio)
+    
+    # Cap between 0 and 100
+    return max(0, min(100, score))
 
-def get_application_notes(crop_type, growth_stage):
+def generate_resource_optimization_recommendations(efficiency_data, current_resources, crops_data):
     """
-    Get specific fertilizer application notes for a crop at a specific growth stage
+    Generate recommendations for resource optimization
     
     Args:
-        crop_type: Type of crop
-        growth_stage: Current growth stage
+        efficiency_data: Output from calculate_resource_efficiency
+        current_resources: Dictionary of current resource levels
+        crops_data: Dictionary with crop requirements
         
     Returns:
-        Application notes
+        List of recommendation dictionaries
     """
-    # Define notes for specific crop-stage combinations
-    specific_notes = {
-        ("Maize", "Vegetative"): "Maize has high nitrogen needs during vegetative growth. Consider side-dressing when plants are 30-45 cm tall.",
-        ("Rice", "Flowering"): "Apply potassium before panicle initiation for improved grain filling and quality.",
-        ("Wheat", "Yield Formation"): "Late nitrogen application can increase protein content in wheat grain for quality improvement.",
-        ("Tomatoes", "Flowering"): "Reduce nitrogen and increase potassium and phosphorus during flowering to promote fruit set.",
-        ("Potatoes", "Tuber Initiation"): "Apply additional potassium at tuber initiation for improved tuber size and quality.",
-        ("Soybeans", "Vegetative"): "Soybeans fix their own nitrogen, focus on phosphorus and potassium applications."
-    }
-    
-    # General notes by crop type
-    general_crop_notes = {
-        "Maize": "Maize is a heavy nitrogen feeder. Monitor closely for nitrogen deficiency symptoms.",
-        "Rice": "Apply nitrogen in multiple splits to improve efficiency in flooded rice systems.",
-        "Wheat": "Spring wheat typically requires more nitrogen than winter wheat varieties.",
-        "Soybeans": "Inoculate soybean seeds with Rhizobium bacteria for effective nitrogen fixation.",
-        "Tomatoes": "Excessive nitrogen can reduce fruit quality and increase foliar diseases.",
-        "Potatoes": "Avoid chloride-containing fertilizers which can reduce potato quality.",
-        "Beans": "Beans benefit from starter nitrogen despite being a legume crop.",
-        "Cotton": "Cotton requires balanced nutrition throughout the growing season.",
-        "Sunflower": "Sunflowers are deep-rooted and can utilize nutrients from lower soil profiles.",
-        "Cassava": "Cassava can perform well in low-fertility soils but responds to balanced fertilization."
-    }
-    
-    # Get specific note if available
-    note = specific_notes.get((crop_type, growth_stage), "")
-    
-    # Add general crop note if available
-    if crop_type in general_crop_notes:
-        if note:
-            note += " " + general_crop_notes[crop_type]
-        else:
-            note = general_crop_notes[crop_type]
-    
-    # Default note if nothing specific is available
-    if not note:
-        note = "Apply fertilizers according to soil test results and crop requirements. Monitor crop for deficiency symptoms."
-    
-    return note
-
-def generate_resource_usage_report(crop_data, water_usage, fertilizer_usage, start_date, end_date):
-    """
-    Generate a resource usage report for a given time period
-    
-    Args:
-        crop_data: Dictionary with crop information
-        water_usage: List of water usage records
-        fertilizer_usage: List of fertilizer usage records
-        start_date: Start date of the report period
-        end_date: End date of the report period
-        
-    Returns:
-        Dictionary with resource usage analysis
-    """
-    # Filter usage records to the report period
-    filtered_water = [record for record in water_usage 
-                     if start_date <= record['date'] <= end_date]
-    
-    filtered_fertilizer = [record for record in fertilizer_usage 
-                          if start_date <= record['date'] <= end_date]
-    
-    # Calculate total usage
-    total_water = sum(record['quantity'] for record in filtered_water)
-    total_fertilizer = sum(record['quantity'] for record in filtered_fertilizer)
-    
-    # Calculate usage per hectare
-    area_size = crop_data.get('area_size', 1)  # Default to 1 ha if not provided
-    water_per_ha = total_water / area_size if area_size > 0 else 0
-    fertilizer_per_ha = total_fertilizer / area_size if area_size > 0 else 0
-    
-    # Calculate efficiency metrics if yield data is available
-    efficiency_metrics = {}
-    if 'yield' in crop_data and crop_data['yield'] > 0:
-        # Water productivity (kg crop per cubic meter of water)
-        water_productivity = (crop_data['yield'] / (total_water / 1000)) if total_water > 0 else 0
-        efficiency_metrics['water_productivity'] = round(water_productivity, 2)
-        
-        # Fertilizer productivity (kg crop per kg fertilizer)
-        fertilizer_productivity = crop_data['yield'] / total_fertilizer if total_fertilizer > 0 else 0
-        efficiency_metrics['fertilizer_productivity'] = round(fertilizer_productivity, 2)
-    
-    # Generate usage patterns (simplified)
-    usage_patterns = {
-        'water_usage_pattern': analyze_usage_pattern(filtered_water),
-        'fertilizer_usage_pattern': analyze_usage_pattern(filtered_fertilizer)
-    }
-    
-    # Generate recommendations
     recommendations = []
     
-    # Water recommendations
-    if 'water_usage_pattern' in usage_patterns:
-        pattern = usage_patterns['water_usage_pattern']
-        if pattern == 'Irregular':
-            recommendations.append("Water application is irregular. Consider implementing a more consistent irrigation schedule.")
-        elif pattern == 'Increasing':
-            recommendations.append("Water usage is increasing. Check for system inefficiencies or leaks.")
+    # Extract metrics
+    field_metrics = efficiency_data.get('field_metrics', {})
+    benchmark_comparison = efficiency_data.get('benchmark_comparison', {})
     
-    # Add general recommendations
-    recommendations.append(get_water_saving_tips())
-    recommendations.append(get_fertilizer_application_tips())
+    # Check fields with poor water efficiency
+    for field_id, comparison in benchmark_comparison.items():
+        metrics = field_metrics.get(field_id, {})
+        crop = metrics.get('crop', 'Unknown')
+        
+        # Water efficiency recommendations
+        water_efficiency = comparison.get('water_efficiency', 50)
+        if water_efficiency < 40:
+            recommendations.append({
+                'field_id': field_id,
+                'resource_type': 'Water',
+                'efficiency_score': water_efficiency,
+                'priority': 'High' if water_efficiency < 30 else 'Medium',
+                'issue': f"Water usage for {crop} in Field {field_id} is {100-water_efficiency}% higher than average",
+                'recommendation': _get_water_optimization_recommendation(crop, crops_data)
+            })
+        
+        # Fertilizer efficiency recommendations
+        fertilizer_efficiency = comparison.get('fertilizer_efficiency', 50)
+        if fertilizer_efficiency < 40:
+            recommendations.append({
+                'field_id': field_id,
+                'resource_type': 'Fertilizer',
+                'efficiency_score': fertilizer_efficiency,
+                'priority': 'High' if fertilizer_efficiency < 30 else 'Medium',
+                'issue': f"Fertilizer usage for {crop} in Field {field_id} is {100-fertilizer_efficiency}% higher than average",
+                'recommendation': _get_fertilizer_optimization_recommendation(crop, crops_data)
+            })
+        
+        # Yield efficiency recommendations
+        yield_efficiency = comparison.get('yield_efficiency', 50)
+        if yield_efficiency < 40:
+            recommendations.append({
+                'field_id': field_id,
+                'resource_type': 'Yield',
+                'efficiency_score': yield_efficiency,
+                'priority': 'High' if yield_efficiency < 30 else 'Medium',
+                'issue': f"Yield for {crop} in Field {field_id} is {100-yield_efficiency}% lower than average",
+                'recommendation': _get_yield_optimization_recommendation(crop, crops_data)
+            })
     
-    # Compile report
-    report = {
-        'period': {
-            'start_date': start_date,
-            'end_date': end_date,
-            'duration_days': (end_date - start_date).days + 1
-        },
-        'total_usage': {
-            'water': total_water,
-            'fertilizer': total_fertilizer
-        },
-        'usage_per_hectare': {
-            'water': round(water_per_ha, 2),
-            'fertilizer': round(fertilizer_per_ha, 2)
-        },
-        'efficiency_metrics': efficiency_metrics,
-        'usage_patterns': usage_patterns,
-        'recommendations': recommendations
-    }
+    # Check for low resources
+    for resource_id, resource in current_resources.items():
+        if resource['quantity'] < resource.get('threshold', 0):
+            recommendations.append({
+                'resource_id': resource_id,
+                'resource_type': resource['type'],
+                'priority': 'High',
+                'issue': f"Low {resource['name']} inventory ({resource['quantity']} {resource['unit']} remaining)",
+                'recommendation': f"Restock {resource['name']} soon to prevent shortages that could impact farm operations."
+            })
     
-    return report
+    # Sort recommendations by priority
+    priority_map = {'High': 0, 'Medium': 1, 'Low': 2}
+    recommendations.sort(key=lambda x: priority_map.get(x['priority'], 3))
+    
+    return recommendations
 
-def analyze_usage_pattern(usage_records):
+def _get_water_optimization_recommendation(crop, crops_data):
+    """Get water optimization recommendation for a specific crop"""
+    crop_info = crops_data.get(crop, {})
+    general_tips = [
+        "Implement drip irrigation to reduce water usage by 30-50% compared to overhead sprinklers.",
+        "Use soil moisture sensors to water only when necessary.",
+        "Schedule irrigation during early morning or evening to reduce evaporation.",
+        "Apply mulch to reduce soil evaporation and water requirements.",
+        "Fix any leaks in irrigation systems promptly."
+    ]
+    
+    specific_tips = crop_info.get('water_optimization_tips', [])
+    
+    # Combine general and specific tips, prioritizing specific ones
+    if specific_tips:
+        return specific_tips[0]
+    else:
+        return general_tips[0]
+
+def _get_fertilizer_optimization_recommendation(crop, crops_data):
+    """Get fertilizer optimization recommendation for a specific crop"""
+    crop_info = crops_data.get(crop, {})
+    general_tips = [
+        "Conduct soil tests to determine exact nutrient needs before applying fertilizer.",
+        "Use precision application techniques to apply fertilizer only where needed.",
+        "Consider split applications of fertilizer throughout the growing season.",
+        "Incorporate organic matter to improve soil fertility naturally.",
+        "Use slow-release fertilizers to reduce leaching and improve efficiency."
+    ]
+    
+    specific_tips = crop_info.get('fertilizer_optimization_tips', [])
+    
+    # Combine general and specific tips, prioritizing specific ones
+    if specific_tips:
+        return specific_tips[0]
+    else:
+        return general_tips[0]
+
+def _get_yield_optimization_recommendation(crop, crops_data):
+    """Get yield optimization recommendation for a specific crop"""
+    crop_info = crops_data.get(crop, {})
+    general_tips = [
+        "Ensure optimal plant spacing to reduce competition and maximize yields.",
+        "Implement integrated pest management to minimize crop damage.",
+        "Monitor and maintain optimal soil pH for nutrient availability.",
+        "Consider foliar feeding to address nutrient deficiencies during critical growth stages.",
+        "Improve pollination through management of flowering timing and pollinator habitat."
+    ]
+    
+    specific_tips = crop_info.get('yield_optimization_tips', [])
+    
+    # Combine general and specific tips, prioritizing specific ones
+    if specific_tips:
+        return specific_tips[0]
+    else:
+        return general_tips[0]
+
+def calculate_optimal_resource_allocation(available_resources, field_requirements, priorities=None):
     """
-    Analyze the pattern of resource usage over time
+    Calculate optimal allocation of limited resources across fields
     
     Args:
-        usage_records: List of usage records with date and quantity
+        available_resources: Dictionary of {resource_type: quantity}
+        field_requirements: Dictionary of {field_id: {resource_type: ideal_quantity}}
+        priorities: Optional dictionary of {field_id: priority_score}
         
     Returns:
-        String describing the usage pattern
+        Dictionary with allocation plan
     """
-    if not usage_records or len(usage_records) < 3:
-        return "Insufficient data"
+    if not available_resources or not field_requirements:
+        return {
+            "allocation": {},
+            "shortages": {}
+        }
     
-    # Sort records by date
-    sorted_records = sorted(usage_records, key=lambda x: x['date'])
+    # Initialize allocation and shortage tracking
+    allocation = {field_id: {} for field_id in field_requirements}
+    shortages = {resource_type: 0 for resource_type in available_resources}
     
-    # Calculate trend
-    quantities = [record['quantity'] for record in sorted_records]
-    n = len(quantities)
+    # Set default priorities if not provided
+    if priorities is None:
+        priorities = {field_id: 1 for field_id in field_requirements}
     
-    # Simple linear regression to detect trend
-    # x values are just the indices (0, 1, 2, ...)
-    x_values = list(range(n))
-    x_mean = sum(x_values) / n
-    y_mean = sum(quantities) / n
+    # First pass: Calculate total requirements and identify shortages
+    total_requirements = {resource_type: 0 for resource_type in available_resources}
     
-    # Calculate slope of the trend line
-    numerator = sum((x_values[i] - x_mean) * (quantities[i] - y_mean) for i in range(n))
-    denominator = sum((x_values[i] - x_mean) ** 2 for i in range(n))
+    for field_id, requirements in field_requirements.items():
+        for resource_type, quantity in requirements.items():
+            if resource_type in total_requirements:
+                total_requirements[resource_type] += quantity
     
-    if denominator == 0:
-        slope = 0
+    # Identify resources with shortages
+    resource_shortage_pct = {}
+    for resource_type, total_required in total_requirements.items():
+        available = available_resources.get(resource_type, 0)
+        
+        if total_required > available and total_required > 0:
+            # Calculate shortage percentage
+            shortage_pct = 1 - (available / total_required)
+            resource_shortage_pct[resource_type] = shortage_pct
+            shortages[resource_type] = total_required - available
+    
+    # Second pass: Allocate resources based on priorities and shortages
+    for field_id, requirements in field_requirements.items():
+        priority = priorities.get(field_id, 1)
+        
+        for resource_type, ideal_quantity in requirements.items():
+            if resource_type not in available_resources:
+                continue
+                
+            if resource_type in resource_shortage_pct:
+                # There's a shortage - allocate proportionally based on priority
+                shortage_pct = resource_shortage_pct[resource_type]
+                
+                # Calculate reduction factor based on priority (higher priority = less reduction)
+                # This is a simplified approach - in a real system, this would be more sophisticated
+                reduction_factor = shortage_pct * (1 - (priority / max(priorities.values())))
+                
+                # Ensure reduction is applied but capped
+                reduction_factor = min(reduction_factor, 0.9)  # Don't reduce by more than 90%
+                
+                # Calculate allocated amount
+                allocated = ideal_quantity * (1 - reduction_factor)
+            else:
+                # No shortage - allocate full amount
+                allocated = ideal_quantity
+            
+            allocation[field_id][resource_type] = allocated
+    
+    # Verify allocations don't exceed available resources
+    allocated_totals = {resource_type: 0 for resource_type in available_resources}
+    
+    for field_allocations in allocation.values():
+        for resource_type, quantity in field_allocations.items():
+            allocated_totals[resource_type] = allocated_totals.get(resource_type, 0) + quantity
+    
+    # Adjust if allocations exceed available (shouldn't happen with correct calculations)
+    for resource_type, total_allocated in allocated_totals.items():
+        available = available_resources.get(resource_type, 0)
+        
+        if total_allocated > available and total_allocated > 0:
+            # Scale down all allocations proportionally
+            scale_factor = available / total_allocated
+            
+            for field_id in allocation:
+                if resource_type in allocation[field_id]:
+                    allocation[field_id][resource_type] *= scale_factor
+    
+    return {
+        "allocation": allocation,
+        "shortages": shortages,
+        "total_requirements": total_requirements,
+        "allocated_totals": allocated_totals
+    }
+
+def calculate_resource_return_on_investment(resource_costs, yield_value, resource_usage, field_data):
+    """
+    Calculate return on investment for different resources
+    
+    Args:
+        resource_costs: Dictionary of {resource_type: cost_per_unit}
+        yield_value: Dictionary of {crop: value_per_unit}
+        resource_usage: DataFrame with [field_id, resource_type, quantity]
+        field_data: Dictionary of {field_id: {crop, yield_amount, area_size}}
+        
+    Returns:
+        Dictionary with ROI metrics
+    """
+    if not resource_costs or not yield_value or resource_usage.empty:
+        return {
+            "field_roi": {},
+            "resource_roi": {},
+            "overall_roi": 0
+        }
+    
+    # Calculate costs and returns for each field
+    field_metrics = {}
+    resource_metrics = {resource_type: {'cost': 0, 'contribution': 0} for resource_type in resource_costs}
+    total_cost = 0
+    total_return = 0
+    
+    for field_id, field_info in field_data.items():
+        # Get crop and yield information
+        crop = field_info.get('crop')
+        yield_amount = field_info.get('yield_amount', 0)
+        
+        if not crop or crop not in yield_value or yield_amount <= 0:
+            continue
+        
+        # Calculate return
+        crop_return = yield_amount * yield_value[crop]
+        
+        # Calculate resource costs for this field
+        field_usage = resource_usage[resource_usage['field_id'] == field_id]
+        field_cost = 0
+        resource_costs_by_type = {}
+        
+        for _, usage_row in field_usage.iterrows():
+            resource_type = usage_row['resource_type']
+            quantity = usage_row['quantity']
+            
+            if resource_type in resource_costs:
+                cost = quantity * resource_costs[resource_type]
+                field_cost += cost
+                
+                # Store by resource type
+                resource_costs_by_type[resource_type] = cost
+                
+                # Update resource metrics
+                resource_metrics[resource_type]['cost'] += cost
+        
+        # Calculate ROI for this field
+        if field_cost > 0:
+            field_roi = (crop_return - field_cost) / field_cost
+        else:
+            field_roi = 0  # No cost, can't calculate ROI
+        
+        # Store field metrics
+        field_metrics[field_id] = {
+            'crop': crop,
+            'yield_amount': yield_amount,
+            'return': crop_return,
+            'total_cost': field_cost,
+            'resource_costs': resource_costs_by_type,
+            'roi': field_roi
+        }
+        
+        # Update totals
+        total_cost += field_cost
+        total_return += crop_return
+        
+        # Calculate contribution to return by resource type
+        for resource_type, cost in resource_costs_by_type.items():
+            # Simple allocation based on cost proportion
+            if field_cost > 0:
+                contribution_pct = cost / field_cost
+                resource_contribution = crop_return * contribution_pct
+                resource_metrics[resource_type]['contribution'] += resource_contribution
+    
+    # Calculate overall ROI
+    overall_roi = (total_return - total_cost) / total_cost if total_cost > 0 else 0
+    
+    # Calculate ROI by resource type
+    for resource_type, metrics in resource_metrics.items():
+        metrics['roi'] = (metrics['contribution'] - metrics['cost']) / metrics['cost'] if metrics['cost'] > 0 else 0
+    
+    return {
+        "field_roi": field_metrics,
+        "resource_roi": resource_metrics,
+        "overall_roi": overall_roi,
+        "total_cost": total_cost,
+        "total_return": total_return
+    }
+
+def generate_resource_cost_breakdown(resource_usage, resource_costs, field_data):
+    """
+    Generate a detailed breakdown of resource costs by field and crop
+    
+    Args:
+        resource_usage: DataFrame with [field_id, resource_type, quantity, date]
+        resource_costs: Dictionary of {resource_type: cost_per_unit}
+        field_data: Dictionary of {field_id: {crop, area_size}}
+        
+    Returns:
+        Dictionary with cost breakdown
+    """
+    if resource_usage.empty or not resource_costs:
+        return {
+            "total_costs": {},
+            "cost_by_field": {},
+            "cost_by_crop": {},
+            "cost_by_month": {}
+        }
+    
+    # Initialize results structure
+    total_costs = {resource_type: 0 for resource_type in resource_costs}
+    cost_by_field = {}
+    cost_by_crop = {}
+    cost_by_month = {}
+    
+    # Process resource usage data
+    for _, row in resource_usage.iterrows():
+        field_id = row['field_id']
+        resource_type = row['resource_type']
+        quantity = row['quantity']
+        date = row['date']
+        
+        # Skip if cost data not available
+        if resource_type not in resource_costs:
+            continue
+        
+        # Calculate cost
+        cost = quantity * resource_costs[resource_type]
+        
+        # Update total costs
+        total_costs[resource_type] += cost
+        
+        # Update cost by field
+        if field_id not in cost_by_field:
+            cost_by_field[field_id] = {resource_type: 0 for resource_type in resource_costs}
+        cost_by_field[field_id][resource_type] = cost_by_field[field_id].get(resource_type, 0) + cost
+        
+        # Update cost by crop using field data
+        if field_id in field_data:
+            crop = field_data[field_id].get('crop')
+            if crop:
+                if crop not in cost_by_crop:
+                    cost_by_crop[crop] = {resource_type: 0 for resource_type in resource_costs}
+                cost_by_crop[crop][resource_type] = cost_by_crop[crop].get(resource_type, 0) + cost
+        
+        # Update cost by month
+        month_key = date.strftime('%Y-%m')
+        if month_key not in cost_by_month:
+            cost_by_month[month_key] = {resource_type: 0 for resource_type in resource_costs}
+        cost_by_month[month_key][resource_type] = cost_by_month[month_key].get(resource_type, 0) + cost
+    
+    # Calculate totals for each breakdown
+    for field_id, costs in cost_by_field.items():
+        costs['total'] = sum(cost for resource_type, cost in costs.items() if resource_type != 'total')
+        
+        # Calculate cost per hectare
+        if field_id in field_data and field_data[field_id].get('area_size', 0) > 0:
+            area = field_data[field_id]['area_size']
+            costs['cost_per_hectare'] = costs['total'] / area
+    
+    for crop, costs in cost_by_crop.items():
+        costs['total'] = sum(cost for resource_type, cost in costs.items() if resource_type != 'total')
+    
+    for month, costs in cost_by_month.items():
+        costs['total'] = sum(cost for resource_type, cost in costs.items() if resource_type != 'total')
+    
+    # Calculate grand total
+    grand_total = sum(cost for resource_type, cost in total_costs.items())
+    total_costs['total'] = grand_total
+    
+    return {
+        "total_costs": total_costs,
+        "cost_by_field": cost_by_field,
+        "cost_by_crop": cost_by_crop,
+        "cost_by_month": cost_by_month
+    }
+
+def analyze_resource_seasonality(resource_usage, years=2):
+    """
+    Analyze seasonality patterns in resource usage
+    
+    Args:
+        resource_usage: DataFrame with [resource_type, date, quantity]
+        years: Number of years of data to analyze
+        
+    Returns:
+        Dictionary with seasonality analysis
+    """
+    if resource_usage.empty:
+        return {
+            "seasonal_patterns": {},
+            "monthly_averages": {},
+            "peak_months": {}
+        }
+    
+    # Filter data for analysis period
+    cutoff_date = datetime.now() - timedelta(days=365 * years)
+    recent_data = resource_usage[resource_usage['date'] >= cutoff_date]
+    
+    if recent_data.empty:
+        return {
+            "seasonal_patterns": {},
+            "monthly_averages": {},
+            "peak_months": {}
+        }
+    
+    # Group by resource type and month
+    recent_data['month'] = recent_data['date'].dt.month
+    monthly_usage = recent_data.groupby(['resource_type', 'month'])['quantity'].sum().reset_index()
+    
+    # Calculate monthly averages
+    monthly_averages = {}
+    peak_months = {}
+    seasonal_patterns = {}
+    
+    for resource_type in monthly_usage['resource_type'].unique():
+        # Filter for this resource type
+        resource_data = monthly_usage[monthly_usage['resource_type'] == resource_type]
+        
+        # Skip if insufficient data
+        if len(resource_data) < 6:  # Need at least 6 months for meaningful analysis
+            continue
+        
+        # Calculate monthly averages
+        monthly_avg = {}
+        for _, row in resource_data.iterrows():
+            month = row['month']
+            quantity = row['quantity']
+            monthly_avg[month] = quantity / years  # Average per year
+        
+        # Find peak and low usage months
+        if monthly_avg:
+            max_month = max(monthly_avg, key=monthly_avg.get)
+            min_month = min(monthly_avg, key=monthly_avg.get)
+            
+            monthly_averages[resource_type] = monthly_avg
+            peak_months[resource_type] = {'peak': max_month, 'low': min_month}
+            
+            # Identify seasonal pattern
+            pattern = _identify_seasonal_pattern(monthly_avg)
+            seasonal_patterns[resource_type] = pattern
+    
+    return {
+        "seasonal_patterns": seasonal_patterns,
+        "monthly_averages": monthly_averages,
+        "peak_months": peak_months
+    }
+
+def _identify_seasonal_pattern(monthly_data):
+    """
+    Identify the seasonal pattern from monthly data
+    
+    Args:
+        monthly_data: Dictionary of {month: quantity}
+        
+    Returns:
+        Dictionary with pattern description
+    """
+    if not monthly_data or len(monthly_data) < 6:
+        return {"pattern": "Insufficient data"}
+    
+    # Calculate average
+    avg = sum(monthly_data.values()) / len(monthly_data)
+    if avg == 0:
+        return {"pattern": "No usage"}
+    
+    # Calculate variation
+    variations = {month: (value - avg) / avg for month, value in monthly_data.items()}
+    
+    # Check for spring peak (months: 3, 4, 5)
+    spring_avg = sum(monthly_data.get(m, 0) for m in [3, 4, 5]) / 3
+    
+    # Check for summer peak (months: 6, 7, 8)
+    summer_avg = sum(monthly_data.get(m, 0) for m in [6, 7, 8]) / 3
+    
+    # Check for fall peak (months: 9, 10, 11)
+    fall_avg = sum(monthly_data.get(m, 0) for m in [9, 10, 11]) / 3
+    
+    # Check for winter peak (months: 12, 1, 2)
+    winter_avg = sum(monthly_data.get(m, 0) for m in [12, 1, 2]) / 3
+    
+    # Determine pattern
+    seasonal_avgs = {
+        "Spring": spring_avg,
+        "Summer": summer_avg,
+        "Fall": fall_avg,
+        "Winter": winter_avg
+    }
+    
+    peak_season = max(seasonal_avgs, key=seasonal_avgs.get)
+    low_season = min(seasonal_avgs, key=seasonal_avgs.get)
+    
+    # Calculate highest and lowest month
+    high_month = max(monthly_data, key=monthly_data.get)
+    low_month = min(monthly_data, key=monthly_data.get)
+    
+    # Calculate peak ratio (high vs average)
+    high_value = monthly_data[high_month]
+    peak_ratio = high_value / avg
+    
+    # Calculate seasonal intensity
+    if peak_ratio > 2:
+        intensity = "Strong"
+    elif peak_ratio > 1.5:
+        intensity = "Moderate"
     else:
-        slope = numerator / denominator
+        intensity = "Mild"
     
-    # Calculate coefficient of determination (R²) to measure consistency
-    ss_total = sum((y - y_mean) ** 2 for y in quantities)
-    
-    if ss_total == 0:
-        r_squared = 1
-    else:
-        y_pred = [x_mean + slope * (x - x_mean) for x in x_values]
-        ss_residual = sum((quantities[i] - y_pred[i]) ** 2 for i in range(n))
-        r_squared = 1 - (ss_residual / ss_total)
-    
-    # Determine pattern based on slope and R²
-    if r_squared < 0.3:
-        return "Irregular"
-    elif abs(slope) < 0.05 * y_mean:
-        return "Stable"
-    elif slope > 0:
-        return "Increasing"
-    else:
-        return "Decreasing"
+    return {
+        "pattern": f"{intensity} {peak_season} Peak",
+        "peak_season": peak_season,
+        "low_season": low_season,
+        "peak_month": high_month,
+        "low_month": low_month,
+        "peak_ratio": peak_ratio,
+        "variations": variations
+    }

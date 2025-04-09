@@ -4,430 +4,395 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import numpy as np
+
 from db_utils import (
-    get_farm_by_id, get_fields_by_farm, get_resource_usage_stats,
-    get_health_records_by_field, get_detection_history,
-    get_recent_activities, get_latest_health_record
+    get_all_farms, 
+    get_fields_by_farm, 
+    get_recent_activities,
+    get_health_records_by_field,
+    get_pest_detections_by_field,
+    get_resources_by_farm,
+    get_resource_usage_by_field,
+    get_crop_recommendations_by_farm
 )
 
 def show():
-    st.title("Farm Dashboard")
+    st.markdown("<h1 class='main-header'>Farm Dashboard</h1>", unsafe_allow_html=True)
+    st.markdown("<p class='sub-header'>Monitor and manage your farm at a glance</p>", unsafe_allow_html=True)
     
-    # Get farm ID from session state
-    if 'selected_farm_id' not in st.session_state:
-        st.error("No farm selected. Please select a farm from the sidebar.")
+    # Get farm data
+    farms = get_all_farms()
+    
+    if not farms:
+        st.warning("No farms found in the database. Please add a farm to get started.")
         return
     
-    farm_id = st.session_state['selected_farm_id']
-    farm = get_farm_by_id(farm_id)
+    # Farm selector
+    farm_names = [farm.name for farm in farms]
+    selected_farm_name = st.selectbox("Select Farm", farm_names)
     
-    if not farm:
-        st.error("Selected farm not found in the database.")
+    # Get selected farm
+    selected_farm = next((farm for farm in farms if farm.name == selected_farm_name), None)
+    
+    if not selected_farm:
+        st.error("Selected farm not found.")
         return
     
-    # Display farm information at the top
-    col1, col2, col3 = st.columns([2, 1, 1])
+    # Display farm info
+    st.markdown(f"### {selected_farm.name}")
+    st.markdown(f"**Location:** {selected_farm.location or 'Not specified'}")
+    st.markdown(f"**Area:** {selected_farm.area_size or 0} hectares")
+    
+    # Layout for dashboard sections
+    col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.header(farm.name)
-        st.write(f"**Location:** {farm.location or 'Not specified'}")
-        st.write(f"**Size:** {farm.area_size or 'Not specified'} hectares")
+        show_field_overview(selected_farm)
     
     with col2:
-        # Get weather from session_state if available (in a real app, would pull from API)
-        if 'current_weather' in st.session_state:
-            weather = st.session_state['current_weather']
-            st.metric("Temperature", f"{weather['temperature']}°C")
-            st.metric("Condition", weather['condition'])
-        else:
-            # Placeholder weather data
-            st.metric("Temperature", "25°C")
-            st.metric("Condition", "Partly Cloudy")
+        show_activity_feed(selected_farm)
+    
+    # Second row with crop health and resource metrics
+    col3, col4 = st.columns([1, 1])
     
     with col3:
-        # Quick stats
-        fields = get_fields_by_farm(farm_id)
-        st.metric("Fields", len(fields) if fields else 0)
-        
-        # Calculate total planted area
-        planted_area = sum(field.area_size or 0 for field in fields if field.current_crop)
-        st.metric("Planted Area", f"{planted_area:.1f} ha")
+        show_crop_health_summary(selected_farm)
     
-    # Create main dashboard sections
-    tab1, tab2, tab3 = st.tabs(["Farm Overview", "Health Status", "Activity Feed"])
+    with col4:
+        show_resource_summary(selected_farm)
     
-    # TAB 1: FARM OVERVIEW
-    with tab1:
-        # Create two columns for layout
-        col1, col2 = st.columns([2, 1])
+    # Third row with recommendations and alerts
+    st.markdown("### Recommendations & Alerts")
+    show_recommendations_and_alerts(selected_farm)
+
+def show_field_overview(farm):
+    """Show overview of fields for the selected farm"""
+    st.markdown("### Field Overview")
+    
+    # Get fields for the farm
+    fields = get_fields_by_farm(farm.id)
+    
+    if not fields:
+        st.info("No fields found for this farm. Add fields to see them here.")
+        return
+    
+    # Create a dataframe for the fields
+    field_data = []
+    for field in fields:
+        days_to_harvest = calculate_days_to_harvest(field)
         
-        with col1:
-            # Field status section
-            st.subheader("Field Status")
-            
-            if fields:
-                # Create data for fields table
-                field_data = []
-                for field in fields:
-                    # Get latest health record for the field if available
-                    health_record = get_latest_health_record(field.id)
-                    
-                    health_status = "Unknown"
-                    health_score = None
-                    if health_record:
-                        health_status = health_record.health_status
-                        health_score = health_record.health_score
-                    
-                    # Determine the status color
-                    if health_status == "Healthy":
-                        status_color = "green"
-                    elif health_status == "Moderate Stress":
-                        status_color = "orange"
-                    elif health_status == "Unhealthy":
-                        status_color = "red"
-                    else:
-                        status_color = "gray"
-                    
-                    # Create a dictionary with field information
-                    field_info = {
-                        "Field": field.name,
-                        "Crop": field.current_crop or "None",
-                        "Size (ha)": field.area_size or "N/A",
-                        "Soil Type": field.soil_type or "Unknown",
-                        "Health Status": health_status,
-                        "Health Score": health_score,
-                        "Status Color": status_color,
-                        "Planting Date": field.planting_date.strftime("%Y-%m-%d") if field.planting_date else "Not set",
-                        "Days to Harvest": calculate_days_to_harvest(field)
-                    }
-                    
-                    field_data.append(field_info)
-                
-                # Convert to DataFrame
-                df = pd.DataFrame(field_data)
-                
-                # Display the fields in a styled table
-                for i, row in df.iterrows():
-                    with st.container():
-                        cols = st.columns([3, 2, 2, 2, 3])
-                        
-                        with cols[0]:
-                            st.subheader(row["Field"])
-                            st.caption(f"{row['Size (ha)']} ha - {row['Soil Type']}")
-                        
-                        with cols[1]:
-                            st.write("**Crop:**")
-                            st.write(row["Crop"])
-                        
-                        with cols[2]:
-                            st.write("**Status:**")
-                            st.markdown(f":<span style='color:{row['Status Color']}'>{row['Health Status']}</span>", 
-                                         unsafe_allow_html=True)
-                        
-                        with cols[3]:
-                            st.write("**Planted:**")
-                            st.write(row["Planting Date"])
-                        
-                        with cols[4]:
-                            if row["Days to Harvest"] and row["Days to Harvest"] != "N/A":
-                                progress = min(1.0, 1 - (row["Days to Harvest"] / 100))  # Simplified calculation
-                                st.progress(progress)
-                                st.caption(f"{row['Days to Harvest']} days to harvest")
-                            else:
-                                st.write("No harvest date set")
-                    
-                    st.divider()
-            else:
-                st.info("No fields found for this farm. Add fields to see them here.")
+        field_data.append({
+            "Field Name": field.name,
+            "Area": field.area_size or 0,
+            "Current Crop": field.current_crop or "None",
+            "Soil Type": field.soil_type or "Unknown",
+            "Days to Harvest": days_to_harvest if days_to_harvest is not None else "N/A",
+            "Field ID": field.id
+        })
+    
+    field_df = pd.DataFrame(field_data)
+    
+    # Display field map/visualization
+    fig = go.Figure()
+    
+    # Create rectangles for each field with size proportional to area
+    max_area = field_df["Area"].max() if not field_df.empty else 1
+    min_size = 0.1  # Minimum size for very small fields
+    
+    for i, field in enumerate(field_data):
+        # Calculate size relative to the largest field
+        rel_size = (field["Area"] / max_area) if max_area > 0 else min_size
+        size = max(rel_size, min_size)
         
-        with col2:
-            # Resource usage summary
-            st.subheader("Resource Usage (30 Days)")
-            
-            # Get resource usage stats
-            resources = get_resource_usage_stats(farm_id, days=30)
-            
-            if resources:
-                # Summarize by resource type
-                resource_summary = {}
-                
-                for usage in resources:
-                    resource = usage.resource
-                    if resource.type not in resource_summary:
-                        resource_summary[resource.type] = {
-                            "total": 0,
-                            "unit": resource.unit
-                        }
-                    resource_summary[resource.type]["total"] += usage.quantity
-                
-                # Create visualization for resource usage
-                resource_types = list(resource_summary.keys())
-                resource_values = [summary["total"] for summary in resource_summary.values()]
-                
-                # Display a pie chart of resource usage by type
-                if resource_types:
-                    fig = px.pie(
-                        names=resource_types,
-                        values=resource_values,
-                        title="Resource Usage by Type",
-                        hole=0.4
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                # Display resource usage metrics
-                for resource_type, summary in resource_summary.items():
-                    st.metric(
-                        f"{resource_type} Usage",
-                        f"{summary['total']:.1f} {summary['unit']}"
-                    )
-            else:
-                st.info("No resource usage data available for the last 30 days.")
-            
-            # Quick access buttons
-            st.subheader("Quick Actions")
-            col1, col2 = st.columns(2)
+        # Position fields in a grid-like layout
+        row = i // 3
+        col = i % 3
+        
+        # Create rectangle
+        fig.add_shape(
+            type="rect",
+            x0=col * 1.2, 
+            y0=row * 1.2,
+            x1=col * 1.2 + size, 
+            y1=row * 1.2 + size,
+            line=dict(color="green"),
+            fillcolor="lightgreen",
+            opacity=0.8,
+        )
+        
+        # Add field name
+        fig.add_annotation(
+            x=col * 1.2 + size/2,
+            y=row * 1.2 + size/2,
+            text=field["Field Name"],
+            showarrow=False,
+            font=dict(color="black", size=10)
+        )
+    
+    # Set layout
+    fig.update_layout(
+        title="Field Map",
+        showlegend=False,
+        height=300,
+        margin=dict(l=0, r=0, t=30, b=0),
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        plot_bgcolor="rgba(0,0,0,0)"
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Show table with field details
+    if not field_df.empty:
+        display_cols = ["Field Name", "Area", "Current Crop", "Soil Type", "Days to Harvest"]
+        st.dataframe(field_df[display_cols], use_container_width=True, hide_index=True)
+
+def show_activity_feed(farm):
+    """Show recent farm activities"""
+    st.markdown("### Recent Activities")
+    
+    # Get recent activities
+    activities = get_recent_activities(farm.id, limit=5)
+    
+    if not activities:
+        st.info("No recent activities found.")
+        return
+    
+    # Display activities
+    for activity in activities:
+        with st.container():
+            col1, col2 = st.columns([1, 4])
             
             with col1:
-                if st.button("Detect Pests", key="quick_detect"):
-                    # In a real app, this would navigate to the Pest Detection page
-                    st.session_state['current_page'] = "Pest & Disease Detection"
-                    st.experimental_rerun()
+                # Show icon based on activity type
+                icon = "🚜"  # default
+                if "plant" in activity.activity_type.lower():
+                    icon = "🌱"
+                elif "harvest" in activity.activity_type.lower():
+                    icon = "🌾"
+                elif "irrigat" in activity.activity_type.lower():
+                    icon = "💧"
+                elif "fertiliz" in activity.activity_type.lower():
+                    icon = "🧪"
+                elif "pest" in activity.activity_type.lower():
+                    icon = "🐛"
+                
+                st.markdown(f"<h1 style='font-size: 24px; margin: 0;'>{icon}</h1>", unsafe_allow_html=True)
             
             with col2:
-                if st.button("Add Resource", key="quick_resource"):
-                    # In a real app, this would navigate to the Resource Management page
-                    st.session_state['current_page'] = "Resource Management"
-                    st.experimental_rerun()
+                # Format date nicely
+                date_str = activity.date.strftime("%b %d, %Y")
+                
+                st.markdown(f"**{activity.activity_type}** - {date_str}")
+                st.markdown(f"<small>{activity.description or ''}</small>", unsafe_allow_html=True)
+                
+                # Show status with color
+                status_color = "#4CAF50" if activity.status == "Completed" else "#FFC107" if activity.status == "In Progress" else "#9E9E9E"
+                st.markdown(f"<span style='color: {status_color}; font-weight: bold;'>{activity.status}</span>", unsafe_allow_html=True)
             
-            if st.button("View Weather Forecast", key="quick_weather"):
-                # In a real app, this would navigate to the Weather page
-                st.session_state['current_page'] = "Weather Insights"
-                st.experimental_rerun()
+            st.markdown("---")
+
+def show_crop_health_summary(farm):
+    """Show summary of crop health across fields"""
+    st.markdown("### Crop Health Summary")
     
-    # TAB 2: HEALTH STATUS
-    with tab2:
-        st.subheader("Farm Health Overview")
+    # Get fields for the farm
+    fields = get_fields_by_farm(farm.id)
+    
+    if not fields:
+        st.info("No fields found for this farm.")
+        return
+    
+    # Create data for crop health visualization
+    health_data = []
+    
+    for field in fields:
+        # Get latest health record for the field
+        health_records = get_health_records_by_field(field.id, limit=1)
+        
+        if health_records:
+            latest_record = health_records[0]
+            health_data.append({
+                "Field": field.name,
+                "Health Score": latest_record.health_score,
+                "Status": latest_record.health_status,
+                "Last Updated": latest_record.date.strftime("%b %d")
+            })
+        else:
+            health_data.append({
+                "Field": field.name,
+                "Health Score": 0,
+                "Status": "No Data",
+                "Last Updated": "Never"
+            })
+    
+    # Create health score gauge chart
+    if health_data:
+        health_df = pd.DataFrame(health_data)
+        avg_health = health_df["Health Score"].mean()
+        
+        # Gauge chart for average health
+        fig = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=avg_health,
+            title={"text": "Average Crop Health"},
+            gauge={
+                "axis": {"range": [0, 100]},
+                "bar": {"color": "green"},
+                "steps": [
+                    {"range": [0, 40], "color": "red"},
+                    {"range": [40, 70], "color": "yellow"},
+                    {"range": [70, 100], "color": "lightgreen"}
+                ],
+                "threshold": {
+                    "line": {"color": "green", "width": 4},
+                    "thickness": 0.75,
+                    "value": avg_health
+                }
+            }
+        ))
+        
+        fig.update_layout(height=250, margin=dict(l=10, r=10, t=50, b=10))
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Bar chart for field health scores
+        fig = px.bar(
+            health_df, 
+            x="Field", 
+            y="Health Score",
+            color="Health Score",
+            color_continuous_scale=["red", "yellow", "green"],
+            range_color=[0, 100],
+            text="Status"
+        )
+        
+        fig.update_layout(
+            title="Health by Field",
+            xaxis_title=None,
+            yaxis_title="Health Score",
+            height=250,
+            margin=dict(l=10, r=10, t=50, b=10)
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No health data available.")
+
+def show_resource_summary(farm):
+    """Show summary of farm resources"""
+    st.markdown("### Resource Summary")
+    
+    # Get resources for the farm
+    resources = get_resources_by_farm(farm.id)
+    
+    if not resources:
+        st.info("No resources found for this farm.")
+        return
+    
+    # Create data for resource visualization
+    resource_data = []
+    
+    for resource in resources:
+        resource_data.append({
+            "Resource": resource.name,
+            "Type": resource.type,
+            "Quantity": resource.quantity,
+            "Unit": resource.unit
+        })
+    
+    # Create a DataFrame
+    resource_df = pd.DataFrame(resource_data)
+    
+    # Group by type
+    type_summary = resource_df.groupby("Type")["Quantity"].sum().reset_index()
+    
+    # Pie chart of resource types
+    fig = px.pie(
+        type_summary,
+        values="Quantity",
+        names="Type",
+        color_discrete_sequence=px.colors.sequential.Greens,
+        title="Resource Distribution by Type"
+    )
+    
+    fig.update_layout(
+        height=300,
+        margin=dict(l=10, r=10, t=50, b=10),
+        legend=dict(orientation="h", y=-0.1)
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Table with resource details
+    st.dataframe(resource_df, use_container_width=True, hide_index=True)
+
+def show_recommendations_and_alerts(farm):
+    """Show recommendations and alerts for the farm"""
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### Recommendations")
+        
+        # Get crop recommendations
+        recommendations = get_crop_recommendations_by_farm(farm.id, limit=3)
+        
+        if recommendations:
+            for rec in recommendations:
+                with st.container():
+                    st.markdown(f"**{rec.crop} - {rec.suitability:.1f}% Suitable**")
+                    st.markdown(f"{rec.rationale[:100]}..." if len(rec.rationale) > 100 else rec.rationale)
+                    st.markdown("---")
+        else:
+            st.info("No crop recommendations available.")
+    
+    with col2:
+        st.markdown("#### Pest Alerts")
+        
+        # Get fields for the farm
+        fields = get_fields_by_farm(farm.id)
         
         if not fields:
-            st.info("No fields found for this farm. Add fields to see health data.")
-        else:
-            # Create metrics for overall health
-            overall_health_score = 0
-            fields_with_health = 0
-            health_by_field = {}
+            st.info("No fields found for this farm.")
+            return
+        
+        # Collect pest detections from all fields
+        all_detections = []
+        
+        for field in fields:
+            detections = get_pest_detections_by_field(field.id, limit=2)
+            if detections:
+                for detection in detections:
+                    all_detections.append({
+                        "Field": field.name,
+                        "Pest": detection.detected_class,
+                        "Severity": detection.severity,
+                        "Date": detection.date
+                    })
+        
+        # Display pest alerts
+        if all_detections:
+            # Sort by date (most recent first)
+            all_detections.sort(key=lambda x: x["Date"], reverse=True)
             
-            # Calculate average health score and collect health data by field
-            for field in fields:
-                health_record = get_latest_health_record(field.id)
-                if health_record and health_record.health_score is not None:
-                    overall_health_score += health_record.health_score
-                    fields_with_health += 1
-                    health_by_field[field.name] = {
-                        "score": health_record.health_score,
-                        "green": health_record.green_percentage,
-                        "yellow": health_record.yellow_percentage,
-                        "brown": health_record.brown_percentage,
-                        "nitrogen": health_record.nitrogen_status,
-                        "phosphorus": health_record.phosphorus_status,
-                        "potassium": health_record.potassium_status
-                    }
-            
-            # Display overall health metrics
-            if fields_with_health > 0:
-                avg_health = overall_health_score / fields_with_health
-                
-                # Determine overall status
-                overall_status = "Unhealthy"
-                if avg_health >= 75:
-                    overall_status = "Healthy"
-                elif avg_health >= 50:
-                    overall_status = "Moderate Stress"
-                
-                # Display the metrics
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.metric("Average Health Score", f"{avg_health:.1f}")
-                
-                with col2:
-                    st.metric("Overall Status", overall_status)
-                
-                with col3:
-                    st.metric("Fields Analyzed", f"{fields_with_health}/{len(fields)}")
-                
-                # Create health visualization
-                if health_by_field:
-                    # Prepare data for charts
-                    field_names = list(health_by_field.keys())
-                    health_scores = [data["score"] for data in health_by_field.values()]
-                    
-                    # Bar chart for health scores by field
-                    fig = px.bar(
-                        x=field_names,
-                        y=health_scores,
-                        labels={"x": "Field", "y": "Health Score"},
-                        title="Health Score by Field",
-                        color=health_scores,
-                        color_continuous_scale="RdYlGn",  # Red to Yellow to Green
-                        range_color=[0, 100]
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Create a multi-bar chart for vegetation breakdown
-                    vegetation_data = []
-                    
-                    for field_name, data in health_by_field.items():
-                        vegetation_data.extend([
-                            {"Field": field_name, "Type": "Green", "Percentage": data["green"]},
-                            {"Field": field_name, "Type": "Yellow", "Percentage": data["yellow"]},
-                            {"Field": field_name, "Type": "Brown", "Percentage": data["brown"]}
-                        ])
-                    
-                    veg_df = pd.DataFrame(vegetation_data)
-                    
-                    fig = px.bar(
-                        veg_df,
-                        x="Field",
-                        y="Percentage",
-                        color="Type",
-                        title="Vegetation Breakdown by Field",
-                        color_discrete_map={"Green": "green", "Yellow": "gold", "Brown": "brown"}
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Nutrient status table
-                    st.subheader("Nutrient Status by Field")
-                    
-                    nutrient_data = []
-                    for field_name, data in health_by_field.items():
-                        nutrient_data.append({
-                            "Field": field_name,
-                            "Nitrogen": data["nitrogen"],
-                            "Phosphorus": data["phosphorus"],
-                            "Potassium": data["potassium"]
-                        })
-                    
-                    nutrient_df = pd.DataFrame(nutrient_data)
-                    st.dataframe(nutrient_df, hide_index=True)
-                
-                # Recent health issues
-                st.subheader("Recent Health Issues")
-                
-                # Collect health records with issues
-                health_issues = []
-                
-                for field in fields:
-                    records = get_health_records_by_field(field.id, limit=5)
-                    for record in records:
-                        if record.health_status != "Healthy":
-                            health_issues.append({
-                                "Date": record.date,
-                                "Field": field.name,
-                                "Status": record.health_status,
-                                "Score": record.health_score,
-                                "Issues": []
-                            })
-                            
-                            # Add specific issues
-                            if record.nitrogen_status == "Deficient":
-                                health_issues[-1]["Issues"].append("Nitrogen deficiency")
-                            if record.phosphorus_status == "Deficient":
-                                health_issues[-1]["Issues"].append("Phosphorus deficiency")
-                            if record.potassium_status == "Deficient":
-                                health_issues[-1]["Issues"].append("Potassium deficiency")
-                
-                # Sort by date and take most recent
-                health_issues.sort(key=lambda x: x["Date"], reverse=True)
-                health_issues = health_issues[:5]  # Show 5 most recent
-                
-                if health_issues:
-                    for issue in health_issues:
-                        with st.container():
-                            cols = st.columns([1, 2, 2])
-                            
-                            with cols[0]:
-                                st.write(f"**{issue['Date'].strftime('%Y-%m-%d')}**")
-                                st.write(f"Field: {issue['Field']}")
-                            
-                            with cols[1]:
-                                st.write(f"Status: {issue['Status']}")
-                                st.write(f"Score: {issue['Score']:.1f}")
-                            
-                            with cols[2]:
-                                st.write("Issues:")
-                                for problem in issue["Issues"]:
-                                    st.write(f"• {problem}")
-                            
-                            st.divider()
-                else:
-                    st.info("No health issues recorded recently.")
-            else:
-                st.info("No health records available. Use the health analysis tool to scan your fields.")
-    
-    # TAB 3: ACTIVITY FEED
-    with tab3:
-        st.subheader("Recent Activities")
-        
-        # Get recent activities
-        activities = get_recent_activities(farm_id, limit=10)
-        
-        if activities:
-            for activity in activities:
+            for detection in all_detections[:3]:  # Show at most 3
                 with st.container():
-                    cols = st.columns([1, 3, 1])
+                    severity_color = "#FF5252" if detection["Severity"] == "High" else "#FFC107" if detection["Severity"] == "Medium" else "#4CAF50"
                     
-                    with cols[0]:
-                        st.write(f"**{activity.date.strftime('%Y-%m-%d')}**")
-                    
-                    with cols[1]:
-                        st.write(f"**{activity.activity_type}**")
-                        st.write(activity.description)
-                    
-                    with cols[2]:
-                        status_color = "green" if activity.status == "Completed" else "orange" if activity.status == "In Progress" else "gray"
-                        st.markdown(f"**Status:** <span style='color:{status_color}'>{activity.status}</span>", unsafe_allow_html=True)
-                    
-                    st.divider()
+                    st.markdown(f"**{detection['Pest']}** in {detection['Field']}")
+                    st.markdown(f"<span style='color: {severity_color}; font-weight: bold;'>{detection['Severity']} Severity</span> - {detection['Date'].strftime('%b %d')}", unsafe_allow_html=True)
+                    st.markdown("---")
         else:
-            st.info("No activities recorded. Activities will appear here as you use the system.")
-        
-        # Pest detection history
-        st.subheader("Recent Pest Detections")
-        
-        # Get pest detection history
-        detections = get_detection_history(limit=5)
-        
-        if detections:
-            for detection in detections:
-                with st.container():
-                    cols = st.columns([1, 2, 2])
-                    
-                    # Get field name
-                    field_name = next((field.name for field in fields if field.id == detection.field_id), "Unknown")
-                    
-                    with cols[0]:
-                        st.write(f"**{detection.date.strftime('%Y-%m-%d')}**")
-                        st.write(f"Field: {field_name}")
-                    
-                    with cols[1]:
-                        st.write(f"Detected: {detection.detected_class.replace('_', ' ')}")
-                        st.write(f"Confidence: {detection.confidence:.1f}%")
-                    
-                    with cols[2]:
-                        severity_color = "green" if detection.severity == "Low" else "orange" if detection.severity == "Medium" else "red"
-                        st.markdown(f"**Severity:** <span style='color:{severity_color}'>{detection.severity}</span>", unsafe_allow_html=True)
-                        st.write("Action: " + (detection.treatment_recommendation[:50] + "..." if len(detection.treatment_recommendation) > 50 else detection.treatment_recommendation))
-                    
-                    st.divider()
-        else:
-            st.info("No pest detections recorded. Use the pest detection tool to scan your crops.")
+            st.info("No pest alerts available.")
 
 def calculate_days_to_harvest(field):
     """Helper function to calculate days to harvest based on planting and expected harvest dates"""
-    if not field.planting_date or not field.expected_harvest_date:
-        return "N/A"
+    if field.planting_date and field.expected_harvest_date:
+        today = datetime.now().date()
+        harvest_date = field.expected_harvest_date.date()
+        
+        if harvest_date > today:
+            return (harvest_date - today).days
+        else:
+            return 0  # Past harvest date
     
-    days_to_harvest = (field.expected_harvest_date - datetime.now()).days
-    return max(0, days_to_harvest)
+    return None  # Dates not available

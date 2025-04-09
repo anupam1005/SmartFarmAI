@@ -1,131 +1,125 @@
 import streamlit as st
 import os
 from datetime import datetime
-from database import init_db
-from db_utils import get_all_farms, setup_demo_farm
+from database import create_tables, init_db
 
 # Import page modules
-from pages.dashboard import show as dashboard_show
-from pages.pest_detection import show as pest_detection_show
-from pages.resource_management import show as resource_management_show
-from pages.weather import show as weather_show
-from pages.crop_recommendation import show as crop_recommendation_show
+from pages import dashboard, crop_recommendation, pest_detection, resource_management, weather
 
-# App configuration
+# Initialize database
+init_db()
+
+# Set up page configuration
 st.set_page_config(
-    page_title="SmartFarm - Precision Agriculture Platform",
+    page_title="SmartFarm - Farm Management Platform",
     page_icon="🌱",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Initialize database
-init_db()
-
-# Create demo farm if none exists
-setup_demo_farm()
-
-# Custom CSS
-with open(".streamlit/style.css", "w") as f:
-    f.write("""
-    /* Custom CSS for the SmartFarm App */
-    .css-18e3th9 {
-        padding-top: 1rem;
+# Define custom CSS
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        color: #2E7D32;
+        margin-bottom: 0;
+    }
+    .sub-header {
+        font-size: 1.2rem;
+        color: #5A5A5A;
+        margin-top: 0;
+        margin-bottom: 2rem;
     }
     
-    /* Better header styling */
-    h1, h2, h3 {
-        margin-bottom: 1rem;
+    .stButton button {
+        background-color: #2E7D32;
+        color: white;
     }
     
-    /* Improve spacing for metrics */
-    div.stMetric {
-        background-color: rgba(28, 131, 225, 0.1);
-        padding: 15px;
+    .stButton button:hover {
+        background-color: #1B5E20;
+        color: white;
+    }
+    
+    .metric-container {
+        background-color: #f7f7f7;
         border-radius: 5px;
+        padding: 10px;
+        text-align: center;
     }
     
-    /* Format buttons */
-    .stButton > button {
-        width: 100%;
+    footer {visibility: hidden;}
+    .css-18e3th9 {padding-top: 1rem;}
+    .css-18e3th9 {padding-bottom: 1rem;}
+    
+    .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
+        font-size: 1.05rem;
     }
-    
-    /* Better dataframe styling */
-    .dataframe {
-        font-size: 0.9rem;
-    }
-    """)
+</style>
+""", unsafe_allow_html=True)
 
-st.markdown(f'<style>{open(".streamlit/style.css").read()}</style>', unsafe_allow_html=True)
-
-# Authentication placeholder
-# In a real application, we would implement proper user authentication here
-if 'authenticated' not in st.session_state:
-    st.session_state['authenticated'] = True
-
-# Initialize session state variables
-if 'selected_farm_id' not in st.session_state:
-    farms = get_all_farms()
-    if farms:
-        st.session_state['selected_farm_id'] = farms[0].id
-
-# Sidebar
-with st.sidebar:
-    st.image("assets/default_farm.svg", width=100)
-    st.title("SmartFarm")
-    st.caption("Precision Agriculture Platform")
-    
-    # Farm selection
-    farms = get_all_farms()
-    if farms:
-        farm_options = {farm.name: farm.id for farm in farms}
-        selected_farm_name = st.selectbox(
-            "Select Farm",
-            list(farm_options.keys())
-        )
-        st.session_state['selected_farm_id'] = farm_options[selected_farm_name]
-    else:
-        st.error("No farms found in the database.")
-    
-    st.divider()
-    
-    # Navigation
-    st.subheader("Navigation")
-    pages = {
-        "Dashboard": dashboard_show,
-        "Pest & Disease Detection": pest_detection_show,
-        "Resource Management": resource_management_show,
-        "Weather Insights": weather_show,
-        "Crop Recommendations": crop_recommendation_show
-    }
-    
-    selected_page = st.radio("Select Page", list(pages.keys()))
-    
-    st.divider()
-    
-    # Display date and time
-    st.caption(f"Date: {datetime.now().strftime('%Y-%m-%d')}")
-    st.caption(f"Last updated: {datetime.now().strftime('%H:%M:%S')}")
-    
-    # App information
-    st.sidebar.info("""
-    **SmartFarm v1.0**
-    An AI-powered platform for smallholder farmers.
-    """)
-
-# Display the selected page
-if st.session_state['authenticated']:
-    pages[selected_page]()
-else:
-    st.warning("Please login to access the SmartFarm platform.")
-    
-    # Simple login form (placeholder)
-    with st.form("login_form"):
-        st.text_input("Username", key="username")
-        st.text_input("Password", type="password", key="password")
-        submit = st.form_submit_button("Login")
+def main():
+    # Sidebar navigation
+    with st.sidebar:
+        st.title("🌱 SmartFarm")
+        st.markdown("#### AI-Powered Farm Management")
         
-        if submit:
-            # In a real application, we would validate credentials here
-            st.session_state['authenticated'] = True
-            st.experimental_rerun()
+        # Show farm stats in sidebar
+        display_farm_stats()
+        
+        # Navigation
+        st.markdown("### Navigation")
+        page = st.radio(
+            "Select Page",
+            ["Dashboard", "Crop Recommendation", "Pest Detection", "Resource Management", "Weather"]
+        )
+        
+        # App information
+        st.markdown("---")
+        st.markdown("### About")
+        st.markdown(
+            "SmartFarm helps smallholder farmers optimize crop health, detect pests, and manage resources effectively using AI technology."
+        )
+        st.markdown(f"**Version:** 1.0.0")
+        st.markdown(f"**Last Updated:** {datetime.now().strftime('%B %d, %Y')}")
+    
+    # Display selected page
+    if page == "Dashboard":
+        dashboard.show()
+    elif page == "Crop Recommendation":
+        crop_recommendation.show()
+    elif page == "Pest Detection":
+        pest_detection.show()
+    elif page == "Resource Management":
+        resource_management.show()
+    elif page == "Weather":
+        weather.show()
+
+def display_farm_stats():
+    """Display farm statistics in the sidebar"""
+    try:
+        from db_utils import get_all_farms, get_fields_count, get_health_records_count, get_pest_detections_count
+        
+        farms_count = len(get_all_farms())
+        fields_count = get_fields_count()
+        health_records_count = get_health_records_count()
+        pest_records_count = get_pest_detections_count()
+        
+        # Display stats
+        st.markdown("### Farm Statistics")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"**Farms:** {farms_count}")
+            st.markdown(f"**Fields:** {fields_count}")
+        with col2:
+            st.markdown(f"**Health Records:** {health_records_count}")
+            st.markdown(f"**Pest Detections:** {pest_records_count}")
+        
+        st.markdown("---")
+    except Exception as e:
+        st.sidebar.warning("Database not ready. Initialize database to view statistics.")
+
+if __name__ == "__main__":
+    main()

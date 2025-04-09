@@ -1,1 +1,2 @@
-# Initialize models package
+# Module initialization file
+# Makes the models directory a Python package

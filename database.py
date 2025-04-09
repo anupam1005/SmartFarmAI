@@ -1,66 +1,58 @@
 import os
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Boolean, ForeignKey, create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship, sessionmaker
-from datetime import datetime
 import logging
+from datetime import datetime
+from contextlib import contextmanager
+from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, relationship
 
-# Set up logging
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Set up the database
+# Get database URL from environment (using PostgreSQL)
 DATABASE_URL = os.environ.get('DATABASE_URL')
-if not DATABASE_URL:
-    logger.warning("DATABASE_URL environment variable not found. Using SQLite database.")
-    DATABASE_URL = "sqlite:///smartfarm.db"
 
-# Create engine
-try:
-    # Modify PostgreSQL URL if necessary (SQLAlchemy 1.4+ requires postgresql:// not postgres://)
-    if DATABASE_URL.startswith("postgres://"):
-        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    
-    engine = create_engine(DATABASE_URL)
-    logger.info(f"Database engine created with {DATABASE_URL.split('://')[0]}")
-except Exception as e:
-    logger.error(f"Error creating database engine: {e}")
-    # Fallback to SQLite
-    DATABASE_URL = "sqlite:///smartfarm.db"
-    engine = create_engine(DATABASE_URL)
-    logger.info(f"Fallback to SQLite database")
-
-# Create base class for declarative models
+# Create SQLAlchemy engine and session
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# Define models
+@contextmanager
+def get_session():
+    """Provide a transactional scope around a series of operations."""
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
+
+# Database Models
 class Farm(Base):
-    __tablename__ = 'farms'
+    __tablename__ = "farms"
     
-    id = Column(Integer, primary_key=True)
-    name = Column(String(100), nullable=False)
-    location = Column(String(255))
-    area_size = Column(Float)
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+    location = Column(String)
+    area_size = Column(Float)  # Hectares
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     
     # Relationships
-    fields = relationship("Field", back_populates="farm", cascade="all, delete-orphan")
-    activities = relationship("Activity", back_populates="farm", cascade="all, delete-orphan")
-    resources = relationship("Resource", back_populates="farm", cascade="all, delete-orphan")
-    
-    def __repr__(self):
-        return f"<Farm(id={self.id}, name='{self.name}', location='{self.location}')>"
+    fields = relationship("Field", back_populates="farm", cascade="all, delete")
+    activities = relationship("Activity", back_populates="farm", cascade="all, delete")
+    resources = relationship("Resource", back_populates="farm", cascade="all, delete")
+    crop_recommendations = relationship("CropRecommendation", back_populates="farm", cascade="all, delete")
 
 class Field(Base):
-    __tablename__ = 'fields'
+    __tablename__ = "fields"
     
-    id = Column(Integer, primary_key=True)
-    farm_id = Column(Integer, ForeignKey('farms.id'), nullable=False)
-    name = Column(String(100), nullable=False)
-    area_size = Column(Float)
-    soil_type = Column(String(50))
-    current_crop = Column(String(100))
+    id = Column(Integer, primary_key=True, index=True)
+    farm_id = Column(Integer, ForeignKey("farms.id", ondelete="CASCADE"))
+    name = Column(String, index=True)
+    area_size = Column(Float)  # Hectares
+    soil_type = Column(String)
+    current_crop = Column(String)
     planting_date = Column(DateTime)
     expected_harvest_date = Column(DateTime)
     created_at = Column(DateTime, default=datetime.now)
@@ -68,185 +60,152 @@ class Field(Base):
     
     # Relationships
     farm = relationship("Farm", back_populates="fields")
-    health_records = relationship("HealthRecord", back_populates="field", cascade="all, delete-orphan")
-    resources_used = relationship("ResourceUsage", back_populates="field", cascade="all, delete-orphan")
-    
-    def __repr__(self):
-        return f"<Field(id={self.id}, name='{self.name}', crop='{self.current_crop}')>"
+    health_records = relationship("HealthRecord", back_populates="field", cascade="all, delete")
+    pest_detections = relationship("PestDetection", back_populates="field", cascade="all, delete")
+    resource_usages = relationship("ResourceUsage", back_populates="field", cascade="all, delete")
 
 class HealthRecord(Base):
-    __tablename__ = 'health_records'
+    __tablename__ = "health_records"
     
-    id = Column(Integer, primary_key=True)
-    field_id = Column(Integer, ForeignKey('fields.id'), nullable=False)
+    id = Column(Integer, primary_key=True, index=True)
+    field_id = Column(Integer, ForeignKey("fields.id", ondelete="CASCADE"))
     date = Column(DateTime, default=datetime.now)
-    health_score = Column(Float)
-    health_status = Column(String(50))
+    health_score = Column(Float)  # 0-100
+    health_status = Column(String)  # Good, Fair, Poor
     green_percentage = Column(Float)
     yellow_percentage = Column(Float)
     brown_percentage = Column(Float)
-    nitrogen_status = Column(String(50))
-    phosphorus_status = Column(String(50))
-    potassium_status = Column(String(50))
+    nitrogen_status = Column(String)  # Good, Medium, Low
+    phosphorus_status = Column(String)  # Good, Medium, Low
+    potassium_status = Column(String)  # Good, Medium, Low
     notes = Column(Text)
-    image_path = Column(String(255))
+    image_path = Column(String)
     
     # Relationships
     field = relationship("Field", back_populates="health_records")
-    recommendations = relationship("Recommendation", back_populates="health_record", cascade="all, delete-orphan")
-    
-    def __repr__(self):
-        return f"<HealthRecord(id={self.id}, field_id={self.field_id}, score={self.health_score}, status='{self.health_status}')>"
+    recommendations = relationship("Recommendation", back_populates="health_record", cascade="all, delete")
 
 class Recommendation(Base):
-    __tablename__ = 'recommendations'
+    __tablename__ = "recommendations"
     
-    id = Column(Integer, primary_key=True)
-    health_record_id = Column(Integer, ForeignKey('health_records.id'), nullable=False)
-    text = Column(Text, nullable=False)
+    id = Column(Integer, primary_key=True, index=True)
+    health_record_id = Column(Integer, ForeignKey("health_records.id", ondelete="CASCADE"))
+    text = Column(Text)
     implemented = Column(Boolean, default=False)
     implementation_date = Column(DateTime)
     
     # Relationships
     health_record = relationship("HealthRecord", back_populates="recommendations")
-    
-    def __repr__(self):
-        return f"<Recommendation(id={self.id}, implemented={self.implemented})>"
 
 class PestDetection(Base):
-    __tablename__ = 'pest_detections'
+    __tablename__ = "pest_detections"
     
-    id = Column(Integer, primary_key=True)
-    field_id = Column(Integer, ForeignKey('fields.id'), nullable=False)
+    id = Column(Integer, primary_key=True, index=True)
+    field_id = Column(Integer, ForeignKey("fields.id", ondelete="CASCADE"))
     date = Column(DateTime, default=datetime.now)
-    detected_class = Column(String(100))
-    confidence = Column(Float)
-    severity = Column(String(50))
+    detected_class = Column(String)
+    confidence = Column(Float)  # 0-1
+    severity = Column(String)  # Low, Medium, High
     description = Column(Text)
     treatment_recommendation = Column(Text)
-    image_path = Column(String(255))
+    image_path = Column(String)
     
     # Relationships
-    field = relationship("Field", backref="pest_detections")
-    
-    def __repr__(self):
-        return f"<PestDetection(id={self.id}, field_id={self.field_id}, detected_class='{self.detected_class}')>"
+    field = relationship("Field", back_populates="pest_detections")
 
 class Activity(Base):
-    __tablename__ = 'activities'
+    __tablename__ = "activities"
     
-    id = Column(Integer, primary_key=True)
-    farm_id = Column(Integer, ForeignKey('farms.id'), nullable=False)
+    id = Column(Integer, primary_key=True, index=True)
+    farm_id = Column(Integer, ForeignKey("farms.id", ondelete="CASCADE"))
     date = Column(DateTime, default=datetime.now)
-    activity_type = Column(String(100), nullable=False)
+    activity_type = Column(String)  # Planting, Fertilizing, Harvesting, etc.
     description = Column(Text)
-    status = Column(String(50), default="Pending")
+    status = Column(String)  # Pending, In Progress, Completed, Cancelled
     
     # Relationships
     farm = relationship("Farm", back_populates="activities")
-    
-    def __repr__(self):
-        return f"<Activity(id={self.id}, type='{self.activity_type}', status='{self.status}')>"
 
 class Resource(Base):
-    __tablename__ = 'resources'
+    __tablename__ = "resources"
     
-    id = Column(Integer, primary_key=True)
-    farm_id = Column(Integer, ForeignKey('farms.id'), nullable=False)
-    name = Column(String(100), nullable=False)
-    type = Column(String(50), nullable=False)  # e.g., Water, Fertilizer, Seeds
+    id = Column(Integer, primary_key=True, index=True)
+    farm_id = Column(Integer, ForeignKey("farms.id", ondelete="CASCADE"))
+    name = Column(String)
+    type = Column(String)  # Fertilizer, Pesticide, Water, Seeds, etc.
     quantity = Column(Float)
-    unit = Column(String(20))  # e.g., liters, kg
+    unit = Column(String)  # Kg, L, etc.
     last_updated = Column(DateTime, default=datetime.now)
     
     # Relationships
     farm = relationship("Farm", back_populates="resources")
-    usages = relationship("ResourceUsage", back_populates="resource", cascade="all, delete-orphan")
-    
-    def __repr__(self):
-        return f"<Resource(id={self.id}, name='{self.name}', type='{self.type}', quantity={self.quantity})>"
+    usages = relationship("ResourceUsage", back_populates="resource", cascade="all, delete")
 
 class ResourceUsage(Base):
-    __tablename__ = 'resource_usages'
+    __tablename__ = "resource_usages"
     
-    id = Column(Integer, primary_key=True)
-    resource_id = Column(Integer, ForeignKey('resources.id'), nullable=False)
-    field_id = Column(Integer, ForeignKey('fields.id'), nullable=False)
+    id = Column(Integer, primary_key=True, index=True)
+    resource_id = Column(Integer, ForeignKey("resources.id", ondelete="CASCADE"))
+    field_id = Column(Integer, ForeignKey("fields.id", ondelete="CASCADE"))
     date = Column(DateTime, default=datetime.now)
-    quantity = Column(Float, nullable=False)
-    application_method = Column(String(100))
+    quantity = Column(Float)
+    application_method = Column(String)  # Spraying, Drip, Broadcast, etc.
     notes = Column(Text)
     
     # Relationships
     resource = relationship("Resource", back_populates="usages")
-    field = relationship("Field", back_populates="resources_used")
-    
-    def __repr__(self):
-        return f"<ResourceUsage(id={self.id}, resource_id={self.resource_id}, quantity={self.quantity})>"
+    field = relationship("Field", back_populates="resource_usages")
 
 class WeatherRecord(Base):
-    __tablename__ = 'weather_records'
+    __tablename__ = "weather_records"
     
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, index=True)
     date = Column(DateTime, default=datetime.now)
-    location = Column(String(255))
+    location = Column(String, index=True)
     temperature = Column(Float)
     humidity = Column(Float)
     precipitation = Column(Float)
     wind_speed = Column(Float)
-    wind_direction = Column(String(10))
-    condition = Column(String(50))
-    
-    def __repr__(self):
-        return f"<WeatherRecord(id={self.id}, location='{self.location}', temperature={self.temperature})>"
+    wind_direction = Column(Float)
+    condition = Column(String)  # Clear, Cloudy, Rain, etc.
 
 class CropRecommendation(Base):
-    __tablename__ = 'crop_recommendations'
+    __tablename__ = "crop_recommendations"
     
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, index=True)
     date = Column(DateTime, default=datetime.now)
-    farm_id = Column(Integer, ForeignKey('farms.id'))
-    crop = Column(String(100), nullable=False)
-    suitability = Column(Float)
-    growing_season = Column(String(100))
-    time_to_harvest = Column(String(100))
-    water_requirements = Column(String(100))
-    fertilizer_needs = Column(String(100))
-    market_demand = Column(String(50))
-    estimated_yield = Column(String(100))
-    price_trend = Column(String(50))
-    investment_level = Column(String(50))
+    farm_id = Column(Integer, ForeignKey("farms.id", ondelete="CASCADE"))
+    crop = Column(String)
+    suitability = Column(Float)  # 0-100
+    growing_season = Column(String)
+    time_to_harvest = Column(String)
+    water_requirements = Column(String)
+    fertilizer_needs = Column(String)
+    market_demand = Column(String)
+    estimated_yield = Column(String)
+    price_trend = Column(String)
+    investment_level = Column(String)
     rationale = Column(Text)
     cultivation_tips = Column(Text)
     risks = Column(Text)
     implemented = Column(Boolean, default=False)
+    implementation_date = Column(DateTime)
     
     # Relationships
-    farm = relationship("Farm", backref="crop_recommendations")
-    
-    def __repr__(self):
-        return f"<CropRecommendation(id={self.id}, crop='{self.crop}', suitability={self.suitability})>"
+    farm = relationship("Farm", back_populates="crop_recommendations")
 
 def create_tables():
-    """Create all tables defined by the models"""
-    try:
-        Base.metadata.create_all(engine)
-        logger.info("Database tables created")
-    except Exception as e:
-        logger.error(f"Error creating database tables: {e}")
-        raise
-
-def get_session():
-    """Get a new database session"""
-    Session = sessionmaker(bind=engine)
-    return Session()
+    """Create all tables in the database"""
+    Base.metadata.create_all(bind=engine)
 
 def init_db():
     """Initialize the database"""
     try:
-        # Create tables if they don't exist
         create_tables()
         logger.info("Database initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing database: {e}")
-        raise
+
+# Initialize database if this script is run directly
+if __name__ == "__main__":
+    init_db()
