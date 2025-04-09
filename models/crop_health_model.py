@@ -1,162 +1,225 @@
 import numpy as np
 import cv2
-import os
+import random
+import logging
 
-# Conditionally import TensorFlow
-# This allows the application to run even if TensorFlow isn't working correctly
-tf = None
-try:
-    import tensorflow as tf
-    print("TensorFlow imported successfully")
-except (ImportError, TypeError, AttributeError) as e:
-    print(f"TensorFlow import failed: {e}. Using fallback methods instead.")
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Placeholder for a trained model that would be loaded in production
-# In a real implementation, we would have a pre-trained model saved and loaded here
-
-def preprocess_image(image):
+class CropHealthModel:
     """
-    Preprocess image for the crop health model
+    A simplified crop health analysis model that uses computer vision techniques
+    to assess crop health from images.
     
-    Args:
-        image: Input image array
+    Note: This is a demonstration model that uses basic image processing instead of
+    deep learning to avoid TensorFlow and GPU dependencies.
+    """
+    
+    def __init__(self):
+        """Initialize the crop health analysis model"""
+        logger.info("Initializing Crop Health Analysis Model")
+        self.initialized = True
+    
+    def analyze_image(self, image):
+        """
+        Analyze crop health from an image
         
-    Returns:
-        Preprocessed image ready for the model
-    """
-    # Resize the image to our model's expected size
-    resized_img = cv2.resize(image, (224, 224))
-    
-    # Convert to RGB if grayscale
-    if len(resized_img.shape) == 2:
-        resized_img = cv2.cvtColor(resized_img, cv2.COLOR_GRAY2RGB)
-    elif resized_img.shape[2] == 4:  # If RGBA, convert to RGB
-        resized_img = cv2.cvtColor(resized_img, cv2.COLOR_RGBA2RGB)
-    
-    # Normalize the image
-    normalized_img = resized_img / 255.0
-    
-    # Expand dimensions to create batch of size 1
-    return np.expand_dims(normalized_img, axis=0)
-
-def analyze_crop_health(image):
-    """
-    Analyze crop health based on the provided image
-    
-    Args:
-        image: Input image array
+        Args:
+            image: Image as a numpy array (BGR format)
+            
+        Returns:
+            Dictionary with health analysis results
+        """
+        if image is None:
+            return {
+                "success": False,
+                "error": "No image provided"
+            }
         
-    Returns:
-        Dictionary containing health analysis results
-    """
-    # In a real implementation, we would:
-    # 1. Load a trained TensorFlow/Keras model
-    # 2. Preprocess the image
-    # 3. Make predictions with the model
-    # 4. Process the predictions to provide useful insights
+        try:
+            # Convert BGR to HSV color space
+            hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+            
+            # Define color ranges for healthy (green), stressed (yellow), and unhealthy (brown) vegetation
+            # HSV ranges: (hue, saturation, value)
+            green_lower = np.array([35, 40, 40])
+            green_upper = np.array([90, 255, 255])
+            
+            yellow_lower = np.array([20, 40, 40])
+            yellow_upper = np.array([35, 255, 255])
+            
+            brown_lower = np.array([0, 20, 20])
+            brown_upper = np.array([20, 100, 100])
+            
+            # Create masks for each color range
+            green_mask = cv2.inRange(hsv_image, green_lower, green_upper)
+            yellow_mask = cv2.inRange(hsv_image, yellow_lower, yellow_upper)
+            brown_mask = cv2.inRange(hsv_image, brown_lower, brown_upper)
+            
+            # Count pixels in each category
+            green_pixels = np.sum(green_mask > 0)
+            yellow_pixels = np.sum(yellow_mask > 0)
+            brown_pixels = np.sum(brown_mask > 0)
+            total_pixels = image.shape[0] * image.shape[1]
+            
+            # Calculate percentage of each category
+            total_vegetation_pixels = green_pixels + yellow_pixels + brown_pixels
+            
+            # Avoid division by zero
+            if total_vegetation_pixels == 0:
+                return {
+                    "success": False,
+                    "error": "No vegetation detected in image"
+                }
+            
+            green_percentage = (green_pixels / total_vegetation_pixels) * 100
+            yellow_percentage = (yellow_pixels / total_vegetation_pixels) * 100
+            brown_percentage = (brown_pixels / total_vegetation_pixels) * 100
+            
+            # Calculate vegetation coverage
+            vegetation_coverage = (total_vegetation_pixels / total_pixels) * 100
+            
+            # Calculate a health score (weighted sum)
+            health_score = (green_percentage * 1.0 + 
+                           yellow_percentage * 0.5 + 
+                           brown_percentage * 0.0)
+            
+            # Determine health status
+            if health_score >= 80:
+                health_status = "Healthy"
+            elif health_score >= 60:
+                health_status = "Moderate Stress"
+            elif health_score >= 40:
+                health_status = "Significant Stress"
+            else:
+                health_status = "Severe Stress"
+            
+            # Simple nutrient status estimation
+            # In a real model, this would use more sophisticated analysis or additional sensors
+            nutrient_status = self._estimate_nutrient_status(green_percentage, yellow_percentage, brown_percentage)
+            
+            # Generate analysis result
+            result = {
+                "success": True,
+                "health_score": round(health_score, 1),
+                "health_status": health_status,
+                "vegetation_coverage": round(vegetation_coverage, 1),
+                "green_percentage": round(green_percentage, 1),
+                "yellow_percentage": round(yellow_percentage, 1),
+                "brown_percentage": round(brown_percentage, 1),
+                "nutrient_status": nutrient_status
+            }
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error analyzing crop health image: {e}")
+            return {
+                "success": False,
+                "error": f"Analysis failed: {str(e)}"
+            }
     
-    # Since we don't have a real model, we'll simulate the analysis
-    
-    # Preprocess the image
-    preprocessed_img = preprocess_image(image)
-    
-    # Simple image analysis for demonstration purposes
-    # In production, this would be replaced with actual model prediction
-    
-    # Extract color features
-    hsv_img = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
-    green_mask = cv2.inRange(hsv_img, (36, 25, 25), (70, 255, 255))
-    yellow_mask = cv2.inRange(hsv_img, (15, 25, 25), (35, 255, 255))
-    brown_mask = cv2.inRange(hsv_img, (5, 25, 25), (14, 255, 255))
-    
-    green_ratio = cv2.countNonZero(green_mask) / (image.shape[0] * image.shape[1])
-    yellow_ratio = cv2.countNonZero(yellow_mask) / (image.shape[0] * image.shape[1])
-    brown_ratio = cv2.countNonZero(brown_mask) / (image.shape[0] * image.shape[1])
-    
-    # Calculate a health score based on color ratios
-    # More green is generally better, more yellow/brown is worse
-    health_score = min(100, max(0, 80 * green_ratio - 50 * yellow_ratio - 100 * brown_ratio + 40))
-    
-    # Determine health status based on score
-    if health_score >= 75:
-        health_status = "Healthy"
-    elif health_score >= 50:
-        health_status = "Moderate Stress"
-    else:
-        health_status = "Unhealthy"
-    
-    # Example simulated nutrient analysis
-    # In production, this would come from actual model predictions
-    nitrogen_level = "Adequate" if health_score > 60 else "Deficient"
-    phosphorus_level = "Adequate" if yellow_ratio < 0.2 else "Deficient"
-    potassium_level = "Adequate" if brown_ratio < 0.1 else "Deficient"
-    
-    # Compile analysis results
-    analysis_result = {
-        "health_score": round(health_score, 1),
-        "health_status": health_status,
-        "color_analysis": {
-            "green_percentage": round(green_ratio * 100, 1),
-            "yellow_percentage": round(yellow_ratio * 100, 1),
-            "brown_percentage": round(brown_ratio * 100, 1)
-        },
-        "nutrient_status": {
-            "nitrogen": nitrogen_level,
-            "phosphorus": phosphorus_level,
-            "potassium": potassium_level
-        },
-        "recommendations": get_recommendations(health_score, green_ratio, yellow_ratio, brown_ratio)
-    }
-    
-    return analysis_result
-
-def get_recommendations(health_score, green_ratio, yellow_ratio, brown_ratio):
-    """
-    Generate recommendations based on the health analysis
-    
-    Args:
-        health_score: Overall health score
-        green_ratio: Ratio of green pixels in the image
-        yellow_ratio: Ratio of yellow pixels in the image
-        brown_ratio: Ratio of brown pixels in the image
+    def _estimate_nutrient_status(self, green_pct, yellow_pct, brown_pct):
+        """
+        Estimate nutrient status based on color percentages
         
-    Returns:
-        List of recommendations
-    """
-    recommendations = []
+        Args:
+            green_pct: Percentage of green pixels
+            yellow_pct: Percentage of yellow pixels
+            brown_pct: Percentage of brown pixels
+            
+        Returns:
+            Dictionary with nutrient status estimates
+        """
+        # In a real model, this would be based on more sophisticated analysis
+        # For this demo, we'll use simplified rules
+        
+        # Nitrogen status based on overall greenness
+        if green_pct >= 70:
+            nitrogen = "Adequate"
+        elif green_pct >= 50:
+            nitrogen = "Slight Deficiency"
+        else:
+            nitrogen = "Deficient"
+        
+        # Phosphorus status based on purple/reddish coloration (simplified here)
+        # In this simplified version, we'll randomize but with a bias based on health
+        phosphorus_options = ["Adequate", "Slight Deficiency", "Deficient"]
+        phosphorus_weights = [0.7, 0.2, 0.1] if green_pct > 60 else [0.3, 0.4, 0.3]
+        phosphorus = random.choices(phosphorus_options, weights=phosphorus_weights)[0]
+        
+        # Potassium status based on yellowing of older leaves (simplified)
+        if yellow_pct <= 15:
+            potassium = "Adequate"
+        elif yellow_pct <= 30:
+            potassium = "Slight Deficiency"
+        else:
+            potassium = "Deficient"
+        
+        return {
+            "nitrogen": nitrogen,
+            "phosphorus": phosphorus,
+            "potassium": potassium
+        }
     
-    if health_score < 50:
-        recommendations.append("Urgent intervention needed. Consider soil testing and consult with an agricultural expert.")
-    
-    if yellow_ratio > 0.2:
-        recommendations.append("Yellow leaves indicate possible nitrogen deficiency. Consider applying nitrogen-rich fertilizer.")
-    
-    if brown_ratio > 0.1:
-        recommendations.append("Brown spots/edges may indicate water stress or fungal infection. Check irrigation and consider fungicide application.")
-    
-    if green_ratio < 0.4:
-        recommendations.append("Low green content indicates overall poor plant health. Check for pest infestations and nutrient deficiencies.")
-    
-    # Add general recommendations if no specific ones were added
-    if not recommendations:
-        recommendations.append("Crop appears healthy. Continue current management practices.")
-        recommendations.append("Regular monitoring is recommended to maintain optimal health.")
-    
-    return recommendations
-
-def load_model():
-    """
-    Load the pre-trained crop health model
-    
-    Returns:
-        Loaded TensorFlow model
-    """
-    # In a real implementation, we would load a saved model
-    # For example:
-    # model_path = os.getenv("MODEL_PATH", "models/crop_health_model.h5")
-    # model = tf.keras.models.load_model(model_path)
-    # return model
-    
-    # For now, we'll just indicate that we would load a model here
-    print("Note: In production, a pre-trained crop health model would be loaded here.")
-    return None
+    def generate_recommendations(self, analysis_result):
+        """
+        Generate recommendations based on the crop health analysis
+        
+        Args:
+            analysis_result: Analysis result from analyze_image method
+            
+        Returns:
+            List of recommendation strings
+        """
+        if not analysis_result.get("success", False):
+            return ["Unable to generate recommendations due to analysis failure."]
+        
+        recommendations = []
+        
+        # Health score based recommendations
+        health_score = analysis_result.get("health_score", 0)
+        
+        if health_score < 50:
+            recommendations.append("Immediate action recommended: Crop showing significant stress.")
+        elif health_score < 70:
+            recommendations.append("Monitor crop closely: Moderate stress detected.")
+        
+        # Nutrient recommendations
+        nutrient_status = analysis_result.get("nutrient_status", {})
+        
+        if nutrient_status.get("nitrogen") == "Deficient":
+            recommendations.append("Apply nitrogen fertilizer. Signs of nitrogen deficiency detected.")
+        elif nutrient_status.get("nitrogen") == "Slight Deficiency":
+            recommendations.append("Consider nitrogen application during next scheduled fertilization.")
+        
+        if nutrient_status.get("phosphorus") == "Deficient":
+            recommendations.append("Apply phosphorus fertilizer. Phosphorus deficiency indicated.")
+        elif nutrient_status.get("phosphorus") == "Slight Deficiency":
+            recommendations.append("Monitor for phosphorus deficiency symptoms. Consider soil testing.")
+        
+        if nutrient_status.get("potassium") == "Deficient":
+            recommendations.append("Apply potassium fertilizer. Signs of potassium deficiency detected.")
+        elif nutrient_status.get("potassium") == "Slight Deficiency":
+            recommendations.append("Consider potassium application during next scheduled fertilization.")
+        
+        # Color distribution recommendations
+        yellow_pct = analysis_result.get("yellow_percentage", 0)
+        brown_pct = analysis_result.get("brown_percentage", 0)
+        
+        if yellow_pct > 30:
+            recommendations.append("High yellowing detected. Check for water stress or nutrient imbalances.")
+        
+        if brown_pct > 20:
+            recommendations.append("Significant brown/dead tissue detected. Check for disease, pest damage, or extreme stress.")
+        
+        # Add general recommendations if limited specific ones
+        if len(recommendations) < 2:
+            if health_score >= 80:
+                recommendations.append("Crop appears healthy. Maintain current management practices.")
+            else:
+                recommendations.append("Consider soil testing for more precise nutrient management recommendations.")
+                recommendations.append("Monitor water management to ensure optimal moisture levels.")
+        
+        return recommendations

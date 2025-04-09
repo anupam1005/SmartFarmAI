@@ -1,162 +1,224 @@
 import streamlit as st
-import numpy as np
 import cv2
-import io
+import numpy as np
+import os
 from PIL import Image
+from datetime import datetime
 from models import pest_detection_model
+from db_utils import get_fields_by_farm, save_pest_detection, get_pest_detections_by_field
 
 def show():
-    st.header("Pest & Disease Detection")
+    st.title("Pest & Disease Detection")
     
-    st.markdown("""
-    Upload a clear image of your plant to detect pests or diseases. For best results:
-    - Take close-up photos of affected leaves/stems
-    - Ensure good lighting
-    - Include multiple angles if possible
-    """)
+    # Get farm ID from session state
+    if 'selected_farm_id' not in st.session_state:
+        st.error("No farm selected. Please select a farm from the sidebar.")
+        return
     
-    # File uploader for images
-    uploaded_file = st.file_uploader("Upload plant image", type=["jpg", "jpeg", "png"])
+    farm_id = st.session_state['selected_farm_id']
     
-    col1, col2 = st.columns(2)
+    # Get fields for the farm
+    fields = get_fields_by_farm(farm_id)
     
-    if uploaded_file is not None:
-        # Process the uploaded image
-        image = Image.open(uploaded_file)
+    if not fields:
+        st.warning("No fields found for this farm. Please add fields first.")
+        return
+    
+    # Create tabs for detection and history
+    tab1, tab2 = st.tabs(["Detect Pests & Diseases", "Detection History"])
+    
+    with tab1:
+        st.header("Detect Pests & Diseases")
         
-        # Convert to numpy array for OpenCV processing
-        image_array = np.array(image)
+        # Field selection
+        field_names = [field.name for field in fields]
+        field_ids = [field.id for field in fields]
         
-        # Resize for display and model input
-        resized_img = cv2.resize(image_array, (400, 400))
+        selected_field_name = st.selectbox(
+            "Select Field",
+            field_names,
+            key="pest_detection_field"
+        )
+        selected_field_index = field_names.index(selected_field_name)
+        selected_field_id = field_ids[selected_field_index]
         
-        with col1:
-            st.subheader("Uploaded Image")
-            st.image(resized_img, channels="RGB", use_column_width=True)
+        # File uploader for images
+        uploaded_file = st.file_uploader(
+            "Upload an image of your crop for pest and disease detection",
+            type=["jpg", "jpeg", "png"]
+        )
         
-        with col2:
-            st.subheader("Analysis Results")
+        # Camera input as an alternative
+        camera_input = st.camera_input("Or take a photo")
+        
+        # Process the image if available
+        if uploaded_file is not None or camera_input is not None:
+            # Determine which input to use
+            image_input = uploaded_file if uploaded_file is not None else camera_input
             
-            # Create a placeholder for the spinner during processing
-            with st.spinner("Analyzing image..."):
-                # Call the pest detection model
-                try:
-                    result = pest_detection_model.detect_pests(image_array)
+            # Display the uploaded image
+            image = Image.open(image_input)
+            st.image(image, caption="Uploaded Image", use_column_width=True)
+            
+            # Process the image when the user clicks the button
+            if st.button("Analyze Image for Pests and Diseases"):
+                with st.spinner("Analyzing image for pests and diseases..."):
+                    # Convert PIL Image to numpy array for OpenCV processing
+                    image_array = np.array(image)
                     
-                    if result and 'detected_class' in result:
-                        st.success(f"Detection Complete!")
+                    # If image is RGBA, convert to RGB
+                    if image_array.shape[-1] == 4:
+                        image_array = cv2.cvtColor(image_array, cv2.COLOR_RGBA2RGB)
+                    
+                    # Perform the detection
+                    detection_result = pest_detection_model.detect_pests(image_array)
+                    
+                    # Display the results
+                    st.success("Analysis complete!")
+                    
+                    # Create two columns for results
+                    col1, col2 = st.columns([2, 1])
+                    
+                    with col1:
+                        # Display the highlighted image if available
+                        highlighted_image = detection_result.get("highlighted_image")
+                        if highlighted_image is not None:
+                            st.subheader("Detected Issue Areas")
+                            st.image(highlighted_image, caption="Areas of concern highlighted in red", use_column_width=True)
                         
-                        # Display detection results
-                        st.markdown(f"**Detected Issue:** {result['detected_class']}")
-                        st.markdown(f"**Confidence:** {result['confidence']:.2f}%")
-                        st.markdown(f"**Severity Level:** {result['severity']}")
+                        # Display the detection details
+                        st.subheader("Detection Results")
+                        st.write(f"**Detected Issue:** {detection_result['detected_class'].replace('_', ' ')}")
+                        st.write(f"**Confidence:** {detection_result['confidence']:.1f}%")
+                        st.write(f"**Severity:** {detection_result['severity']}")
                         
-                        # Show treatment recommendations
-                        st.subheader("Recommended Treatment")
-                        st.markdown(result['treatment_recommendation'])
+                        # Description and treatment
+                        st.subheader("Description")
+                        st.write(detection_result['description'])
                         
-                        # Additional insights or visual markers
-                        if 'highlighted_image' in result and result['highlighted_image'] is not None:
-                            st.subheader("Affected Areas Highlighted")
-                            st.image(result['highlighted_image'], channels="RGB", use_column_width=True)
-                    else:
-                        st.info("No pests or diseases detected. Your plant appears healthy.")
+                        st.subheader("Treatment Recommendations")
+                        st.write(detection_result['treatment_recommendation'])
+                    
+                    with col2:
+                        # Quick actions
+                        st.subheader("Actions")
                         
-                except Exception as e:
-                    st.error(f"Error analyzing image: {str(e)}")
-                    st.markdown("Please try uploading a different image with better lighting and focus.")
+                        # Save the detection to the database
+                        if st.button("Save This Detection"):
+                            # Save the detection record
+                            # In a real application, we would save the image to a file storage
+                            # and store the path in the database
+                            image_path = None  # We're not saving the image in this demo
+                            
+                            save_pest_detection(
+                                field_id=selected_field_id,
+                                detected_class=detection_result['detected_class'],
+                                confidence=detection_result['confidence'],
+                                severity=detection_result['severity'],
+                                description=detection_result['description'],
+                                treatment_recommendation=detection_result['treatment_recommendation'],
+                                image_path=image_path
+                            )
+                            
+                            st.success("Detection record saved successfully!")
+                        
+                        # Print report option
+                        if st.button("Print Report"):
+                            st.info("Printing functionality would be implemented here.")
+                        
+                        # Share option
+                        if st.button("Share with Expert"):
+                            st.info("Sharing functionality would be implemented here.")
+        else:
+            # Placeholder when no image is uploaded
+            st.info("Please upload an image or take a photo to analyze for pests and diseases.")
+            
+            # Example information
+            st.subheader("What This Tool Can Detect")
+            st.write("""
+            This tool can help identify common crop pests and diseases, including:
+            - Aphid infestations
+            - Whitefly infestations
+            - Tomato early blight
+            - Tomato late blight
+            - Maize common rust
+            - Bean anthracnose
+            - Cassava mosaic disease
+            - And more...
+            """)
+            
+            # Tips
+            st.subheader("Tips for Best Results")
+            st.write("""
+            - Take clear, well-lit photos
+            - Focus on the affected plant parts (leaves, stems, fruits)
+            - Include both healthy and affected areas for comparison
+            - Take multiple photos from different angles if needed
+            """)
     
-    else:
-        # Show sample images and instructions when no file is uploaded
-        st.info("Please upload an image to begin analysis")
+    with tab2:
+        st.header("Detection History")
         
-        # Display SVG placeholder
-        st.markdown("""
-        <div style="display: flex; justify-content: center;">
-            <svg width="300" height="200" xmlns="http://www.w3.org/2000/svg">
-                <rect width="100%" height="100%" fill="#f0f0f0" />
-                <text x="50%" y="50%" font-family="Arial" font-size="20" fill="#555" text-anchor="middle">Image Preview Area</text>
-                <text x="50%" y="65%" font-family="Arial" font-size="14" fill="#777" text-anchor="middle">Upload an image to detect pests</text>
-            </svg>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Common pest and disease information section
-    st.markdown("---")
-    st.subheader("Common Pests & Diseases")
-    
-    # Create tabs for different categories
-    pest_tab, disease_tab, prevention_tab = st.tabs(["Common Pests", "Common Diseases", "Prevention Tips"])
-    
-    with pest_tab:
-        st.markdown("""
-        ### Aphids
-        **Signs**: Clusters of small insects on new growth, sticky honeydew, curling leaves  
-        **Crops Affected**: Most vegetables, especially cabbage, beans, and tomatoes  
-        **Treatment**: Neem oil spray, insecticidal soap, introduce ladybugs
+        # Field filter for history
+        field_filter = st.selectbox(
+            "Filter by Field",
+            ["All Fields"] + field_names,
+            key="pest_detection_history_field"
+        )
         
-        ### Fall Armyworm
-        **Signs**: Irregular holes in leaves, sawdust-like waste  
-        **Crops Affected**: Maize, sorghum, millet  
-        **Treatment**: Early detection, biological controls, specific pesticides
+        # Get detection history
+        if field_filter == "All Fields":
+            # In a real app, we would implement pagination or limiting
+            all_detections = []
+            for field in fields:
+                detections = get_pest_detections_by_field(field.id)
+                for detection in detections:
+                    all_detections.append({
+                        "field_id": field.id,
+                        "field_name": next(f.name for f in fields if f.id == field.id),
+                        "detection": detection
+                    })
+        else:
+            field_index = field_names.index(field_filter)
+            field_id = field_ids[field_index]
+            detections = get_pest_detections_by_field(field_id)
+            all_detections = [{
+                "field_id": field_id,
+                "field_name": field_filter,
+                "detection": detection
+            } for detection in detections]
         
-        ### Whiteflies
-        **Signs**: Small white insects on leaf undersides, yellowing leaves  
-        **Crops Affected**: Tomatoes, peppers, sweet potatoes  
-        **Treatment**: Yellow sticky traps, insecticidal soap, remove infected leaves
-        """)
-    
-    with disease_tab:
-        st.markdown("""
-        ### Late Blight
-        **Signs**: Dark water-soaked spots on leaves, white mold under leaves  
-        **Crops Affected**: Tomatoes, potatoes  
-        **Treatment**: Fungicides, remove infected plants, improve air circulation
-        
-        ### Powdery Mildew
-        **Signs**: White powdery spots on leaves and stems  
-        **Crops Affected**: Squash, melons, cucumbers  
-        **Treatment**: Bicarbonate solutions, neem oil, remove infected parts
-        
-        ### Cassava Mosaic Disease
-        **Signs**: Yellow mottling of leaves, leaf distortion  
-        **Crops Affected**: Cassava  
-        **Treatment**: Use resistant varieties, remove infected plants, control whiteflies
-        """)
-    
-    with prevention_tab:
-        st.markdown("""
-        ### Cultural Practices
-        - Crop rotation to break pest and disease cycles
-        - Adequate plant spacing for better air circulation
-        - Regular monitoring of plants
-        - Removing crop debris after harvest
-        
-        ### Natural Controls
-        - Introducing beneficial insects (ladybugs, predatory mites)
-        - Companion planting to repel pests
-        - Organic mulches to suppress disease
-        
-        ### Timing Strategies
-        - Plant early or late to avoid peak pest seasons
-        - Time planting to ensure harvest before disease pressure peaks
-        - Monitor weather patterns to predict disease outbreaks
-        """)
-        
-    # Historical detections - in a real application, this would come from a database
-    st.markdown("---")
-    st.subheader("Your Detection History")
-    
-    # Example historical data - in production this would come from a database
-    if st.checkbox("Show detection history"):
-        history_data = {
-            "Date": ["2023-10-15", "2023-10-10", "2023-09-28", "2023-09-15"],
-            "Crop": ["Tomato", "Maize", "Beans", "Tomato"],
-            "Detection": ["Early Blight", "Fall Armyworm", "Bean Rust", "Aphids"],
-            "Severity": ["Moderate", "High", "Low", "Moderate"],
-            "Status": ["Treated", "Treated", "Resolved", "Resolved"]
-        }
-        
-        import pandas as pd
-        history_df = pd.DataFrame(history_data)
-        st.dataframe(history_df, use_container_width=True)
+        # Display the detection history
+        if all_detections:
+            for i, detection_data in enumerate(all_detections):
+                detection = detection_data["detection"]
+                field_name = detection_data["field_name"]
+                
+                with st.expander(
+                    f"{detection.date.strftime('%Y-%m-%d %H:%M')} - {field_name} - {detection.detected_class.replace('_', ' ')}",
+                    expanded=(i == 0)  # Expand the first one by default
+                ):
+                    col1, col2 = st.columns([2, 1])
+                    
+                    with col1:
+                        st.write(f"**Field:** {field_name}")
+                        st.write(f"**Date:** {detection.date.strftime('%Y-%m-%d %H:%M')}")
+                        st.write(f"**Detected Issue:** {detection.detected_class.replace('_', ' ')}")
+                        st.write(f"**Confidence:** {detection.confidence:.1f}%")
+                        st.write(f"**Severity:** {detection.severity}")
+                        
+                        # Description and treatment
+                        st.subheader("Description")
+                        st.write(detection.description)
+                        
+                        st.subheader("Treatment Recommendation")
+                        st.write(detection.treatment_recommendation)
+                    
+                    with col2:
+                        # If we had saved images, we would display them here
+                        if detection.image_path:
+                            st.image(detection.image_path, caption="Detected Image", use_column_width=True)
+                        else:
+                            st.write("No image available")
+        else:
+            st.info("No pest detection records found. Use the 'Detect Pests & Diseases' tab to analyze your crops.")

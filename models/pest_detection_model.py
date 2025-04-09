@@ -1,212 +1,308 @@
 import numpy as np
 import cv2
-import os
+import random
+import logging
 
-# Conditionally import TensorFlow
-# This allows the application to run even if TensorFlow isn't working correctly
-tf = None
-try:
-    import tensorflow as tf
-    print("TensorFlow imported successfully")
-except (ImportError, TypeError, AttributeError) as e:
-    print(f"TensorFlow import failed: {e}. Using fallback methods instead.")
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Simulated pest detection functionality since we don't have an actual model
-# In production, this would be a real ML model for pest and disease detection
-
-def preprocess_image(image):
+class PestDetectionModel:
     """
-    Preprocess image for the pest detection model
+    A simplified pest detection model that uses basic computer vision techniques
+    to detect potential pest issues in crop images.
     
-    Args:
-        image: Input image array
+    Note: This is a demonstration model that uses basic image processing instead of
+    deep learning to avoid TensorFlow and GPU dependencies.
+    """
+    
+    def __init__(self):
+        """Initialize the pest detection model"""
+        logger.info("Initializing Pest Detection Model")
+        self.initialized = True
         
-    Returns:
-        Preprocessed image ready for the model
-    """
-    # Resize the image to a standard size
-    resized_img = cv2.resize(image, (224, 224))
+        # Define common agricultural pest classes
+        self.pest_classes = [
+            "Aphids",
+            "Spider Mites",
+            "Thrips",
+            "Whiteflies",
+            "Leaf Miners",
+            "Caterpillars",
+            "Beetle Damage",
+            "Grasshoppers",
+            "Fungal Infection",
+            "Bacterial Infection",
+            "Viral Infection",
+            "Nutrient Deficiency"  # Not a pest but often confused with pest damage
+        ]
     
-    # Convert to RGB if grayscale
-    if len(resized_img.shape) == 2:
-        resized_img = cv2.cvtColor(resized_img, cv2.COLOR_GRAY2RGB)
-    elif resized_img.shape[2] == 4:  # If RGBA, convert to RGB
-        resized_img = cv2.cvtColor(resized_img, cv2.COLOR_RGBA2RGB)
-    
-    # Normalize pixel values to [0, 1]
-    normalized_img = resized_img / 255.0
-    
-    # Expand dimensions to match model input shape
-    return np.expand_dims(normalized_img, axis=0)
-
-def get_disease_info(disease_class):
-    """
-    Get detailed information about a specific crop disease
-    
-    Args:
-        disease_class: The identified disease class
+    def detect_pests(self, image):
+        """
+        Detect potential pest issues in an image
         
-    Returns:
-        Dictionary with disease information
-    """
-    disease_database = {
-        "Healthy": {
-            "description": "No disease detected. Plant appears healthy.",
-            "treatment": "Continue with regular maintenance and monitoring.",
-            "severity": "None"
-        },
-        "Tomato_Late_Blight": {
-            "description": "Late blight is a destructive disease affecting tomatoes, causing dark, water-soaked lesions on leaves, stems, and fruits.",
-            "treatment": "Apply fungicides containing chlorothalonil or copper compounds. Remove infected plants to prevent spread. Avoid overhead watering and ensure good air circulation.",
-            "severity": "High"
-        },
-        "Maize_Common_Rust": {
-            "description": "Common rust appears as small, circular to elongate, cinnamon-brown pustules on both leaf surfaces, often in bands across the leaf.",
-            "treatment": "Apply fungicides containing azoxystrobin, pyraclostrobin, or propiconazole. Plant resistant varieties for future crops.",
-            "severity": "Medium"
-        },
-        "Bean_Anthracnose": {
-            "description": "Anthracnose causes dark, sunken lesions on pods, leaves, and stems, often with pink spore masses in the center.",
-            "treatment": "Apply copper-based fungicides or chlorothalonil. Use certified disease-free seeds. Rotate crops and avoid handling plants when wet.",
-            "severity": "Medium"
-        },
-        "Tomato_Early_Blight": {
-            "description": "Early blight causes dark, concentric rings on leaves, often starting from the bottom of the plant and moving upward.",
-            "treatment": "Apply fungicides containing chlorothalonil, copper, or mancozeb. Remove lower infected leaves. Mulch around plants to prevent soil splashing.",
-            "severity": "Medium"
-        },
-        "Cassava_Mosaic_Disease": {
-            "description": "Cassava mosaic disease causes mottling and distortion of leaves, stunted growth, and reduced root yield.",
-            "treatment": "No chemical treatment is effective. Use disease-free cuttings for planting. Remove and destroy infected plants. Plant resistant varieties.",
-            "severity": "High"
-        },
-        "Aphid_Infestation": {
-            "description": "Aphids are small sap-sucking insects that cause yellowing, curling of leaves, and stunted growth. They also transmit viral diseases.",
-            "treatment": "Apply insecticidal soap, neem oil, or pyrethrin. Introduce natural predators like ladybugs. Use strong water spray to knock aphids off plants.",
-            "severity": "Medium"
-        },
-        "Whitefly_Infestation": {
-            "description": "Whiteflies are tiny, white insects that feed on plant sap, causing yellowing and wilting. They also excrete honeydew, leading to sooty mold.",
-            "treatment": "Apply insecticidal soap, neem oil, or synthetic insecticides. Use yellow sticky traps. Remove heavily infested leaves.",
-            "severity": "Medium"
+        Args:
+            image: Image as a numpy array (BGR format)
+            
+        Returns:
+            Dictionary with detection results
+        """
+        if image is None:
+            return {
+                "success": False,
+                "error": "No image provided"
+            }
+        
+        try:
+            # This is a simplified demo version that simulates pest detection
+            # In a real application, this would use an actual detection model
+            
+            # Convert to HSV color space
+            hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+            
+            # Extract features that might indicate pest presence
+            # For this demo, we'll analyze color distributions and look for irregular patterns
+            features = self._extract_features(image, hsv_image)
+            
+            # Analyze features for pest indicators
+            # In a real model, this would involve a trained classifier
+            detections = self._analyze_features(features)
+            
+            # Return results
+            return {
+                "success": True,
+                "detections": detections
+            }
+            
+        except Exception as e:
+            logger.error(f"Error detecting pests: {e}")
+            return {
+                "success": False,
+                "error": f"Detection failed: {str(e)}"
+            }
+    
+    def _extract_features(self, image, hsv_image):
+        """
+        Extract features from image that might indicate pest presence
+        
+        Args:
+            image: Original BGR image
+            hsv_image: HSV converted image
+            
+        Returns:
+            Dictionary of extracted features
+        """
+        # Calculate color histograms
+        h_hist = cv2.calcHist([hsv_image], [0], None, [30], [0, 180])
+        s_hist = cv2.calcHist([hsv_image], [1], None, [32], [0, 256])
+        v_hist = cv2.calcHist([hsv_image], [2], None, [32], [0, 256])
+        
+        # Normalize histograms
+        h_hist = cv2.normalize(h_hist, h_hist).flatten()
+        s_hist = cv2.normalize(s_hist, s_hist).flatten()
+        v_hist = cv2.normalize(v_hist, v_hist).flatten()
+        
+        # Convert to grayscale for texture analysis
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        
+        # Detect edges (can indicate irregular patterns caused by pests)
+        edges = cv2.Canny(gray, 100, 200)
+        edge_density = np.sum(edges > 0) / (edges.shape[0] * edges.shape[1])
+        
+        # Detect potential spots/lesions using simple blob detection
+        # In a real app, this would use more sophisticated techniques
+        _, thresh = cv2.threshold(gray, 120, 255, cv2.THRESH_BINARY_INV)
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # Analyze contours
+        small_spots_count = 0
+        medium_spots_count = 0
+        large_spots_count = 0
+        
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if 10 <= area < 50:
+                small_spots_count += 1
+            elif 50 <= area < 200:
+                medium_spots_count += 1
+            elif area >= 200:
+                large_spots_count += 1
+        
+        # Analyze color variations which might indicate stress or damage
+        std_hue = np.std(hsv_image[:, :, 0])
+        std_saturation = np.std(hsv_image[:, :, 1])
+        std_value = np.std(hsv_image[:, :, 2])
+        
+        # Compile features
+        features = {
+            "h_hist": h_hist,
+            "s_hist": s_hist,
+            "v_hist": v_hist,
+            "edge_density": edge_density,
+            "small_spots": small_spots_count,
+            "medium_spots": medium_spots_count,
+            "large_spots": large_spots_count,
+            "std_hue": std_hue,
+            "std_saturation": std_saturation,
+            "std_value": std_value
         }
-    }
-    
-    return disease_database.get(disease_class, {
-        "description": "Information not available for this condition.",
-        "treatment": "Consult with a local agricultural expert.",
-        "severity": "Unknown"
-    })
-
-def detect_pests(image):
-    """
-    Detect pests and diseases in the provided image
-    
-    Args:
-        image: Input image array
         
-    Returns:
-        Dictionary containing detection results
-    """
-    # In a real implementation, we would:
-    # 1. Load a trained pest/disease detection model
-    # 2. Preprocess the image
-    # 3. Make predictions with the model
-    # 4. Process the predictions to provide useful insights
+        return features
     
-    # Since we don't have a real model, we'll simulate the detection
-    # This is just for demonstration purposes
+    def _analyze_features(self, features):
+        """
+        Analyze extracted features to identify potential pest issues
+        
+        Args:
+            features: Dictionary of image features
+            
+        Returns:
+            List of detection results
+        """
+        # For this demo, we'll use a simplified rule-based approach
+        # In a real application, this would use a trained model
+        
+        detections = []
+        
+        # Example rules (simplified)
+        # These thresholds would normally be learned or carefully calibrated
+        
+        # Check for small clusters that might indicate small pests
+        if features['small_spots'] > 30:
+            confidence = min(0.95, 0.5 + (features['small_spots'] - 30) / 100)
+            detections.append(self._create_detection("Aphids", confidence))
+        elif features['small_spots'] > 20:
+            confidence = min(0.85, 0.4 + (features['small_spots'] - 20) / 100)
+            detections.append(self._create_detection("Spider Mites", confidence))
+        
+        # Check for irregular edges that might indicate leaf damage
+        if features['edge_density'] > 0.15:
+            confidence = min(0.9, 0.5 + features['edge_density'])
+            if features['medium_spots'] > 10:
+                detections.append(self._create_detection("Caterpillars", confidence))
+            else:
+                detections.append(self._create_detection("Leaf Miners", confidence))
+        
+        # Check for color variations that might indicate disease
+        if features['std_saturation'] > 50 and features['large_spots'] > 5:
+            confidence = min(0.85, 0.5 + features['std_saturation'] / 100)
+            detections.append(self._create_detection("Fungal Infection", confidence))
+        
+        # If no specific patterns detected but some anomalies exist
+        if not detections and (features['edge_density'] > 0.1 or 
+                              features['small_spots'] > 10 or 
+                              features['medium_spots'] > 5):
+            # Generate a random detection for demonstration
+            random_class = random.choice(self.pest_classes)
+            detections.append(self._create_detection(random_class, 0.6))
+        
+        # If really nothing found, indicate so
+        if not detections:
+            detections.append({
+                "class": "No Pests Detected",
+                "confidence": 0.8,
+                "severity": "None",
+                "description": "No significant pest issues detected in the image.",
+                "treatment": "Continue regular monitoring and preventive measures."
+            })
+        
+        return detections
     
-    # Preprocess the image
-    preprocessed_img = preprocess_image(image)
-    
-    # Simple image analysis for demonstration
-    # In production, this would be replaced with actual model prediction
-    hsv_img = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
-    
-    # Analyze color distribution
-    green_mask = cv2.inRange(hsv_img, (36, 25, 25), (70, 255, 255))
-    yellow_mask = cv2.inRange(hsv_img, (15, 25, 25), (35, 255, 255))
-    brown_mask = cv2.inRange(hsv_img, (5, 25, 25), (14, 255, 255))
-    
-    green_pixels = cv2.countNonZero(green_mask)
-    yellow_pixels = cv2.countNonZero(yellow_mask)
-    brown_pixels = cv2.countNonZero(brown_mask)
-    total_pixels = image.shape[0] * image.shape[1]
-    
-    yellow_ratio = yellow_pixels / total_pixels
-    brown_ratio = brown_pixels / total_pixels
-    green_ratio = green_pixels / total_pixels
-    
-    # Simulated disease detection based on color distribution
-    # In production, this would come from a trained model's predictions
-    detected_class = "Healthy"
-    confidence = 85.0
-    severity = "None"
-    
-    if yellow_ratio > 0.2 and green_ratio < 0.5:
-        detected_class = "Tomato_Early_Blight"
-        confidence = 78.5
-        severity = "Medium"
-    elif brown_ratio > 0.15:
-        detected_class = "Tomato_Late_Blight"
-        confidence = 82.3
-        severity = "High"
-    elif yellow_ratio > 0.1 and brown_ratio > 0.05:
-        detected_class = "Maize_Common_Rust"
-        confidence = 75.8
-        severity = "Medium"
-    
-    # Get additional information about the detected disease
-    disease_info = get_disease_info(detected_class)
-    
-    # Create a highlighted image showing affected areas
-    highlighted_image = image.copy()
-    
-    if detected_class != "Healthy":
-        # Create a mask for affected areas based on color analysis
-        if "Blight" in detected_class:
-            affected_mask = cv2.bitwise_or(brown_mask, yellow_mask)
-        elif "Rust" in detected_class:
-            affected_mask = brown_mask
+    def _create_detection(self, pest_class, confidence):
+        """
+        Create a formatted detection result
+        
+        Args:
+            pest_class: Detected pest class
+            confidence: Detection confidence score
+            
+        Returns:
+            Dictionary with detection details
+        """
+        # Determine severity based on confidence
+        if confidence > 0.8:
+            severity = "High"
+        elif confidence > 0.6:
+            severity = "Medium"
         else:
-            affected_mask = yellow_mask
+            severity = "Low"
         
-        # Dilate the mask to make it more visible
-        kernel = np.ones((5, 5), np.uint8)
-        affected_mask = cv2.dilate(affected_mask, kernel, iterations=1)
+        # Get description and treatment for the pest
+        description, treatment = self._get_pest_info(pest_class)
         
-        # Highlight affected areas in red
-        highlighted_image[affected_mask > 0] = [255, 0, 0]
-    else:
-        # No highlighting for healthy plants
-        highlighted_image = None
+        return {
+            "class": pest_class,
+            "confidence": round(float(confidence), 2),
+            "severity": severity,
+            "description": description,
+            "treatment": treatment
+        }
     
-    # Compile detection results
-    detection_result = {
-        "detected_class": detected_class,
-        "confidence": confidence,
-        "severity": severity,
-        "description": disease_info.get("description", ""),
-        "treatment_recommendation": disease_info.get("treatment", ""),
-        "highlighted_image": highlighted_image
-    }
-    
-    return detection_result
-
-def load_model():
-    """
-    Load the pre-trained pest detection model
-    
-    Returns:
-        Loaded TensorFlow model
-    """
-    # In a real implementation, we would load a saved model
-    # For example:
-    # model_path = os.getenv("PEST_MODEL_PATH", "models/pest_detection_model.h5")
-    # model = tf.keras.models.load_model(model_path)
-    # return model
-    
-    # For now, we'll just indicate that we would load a model here
-    print("Note: In production, a pre-trained pest detection model would be loaded here.")
-    return None
+    def _get_pest_info(self, pest_class):
+        """
+        Get description and treatment information for a pest class
+        
+        Args:
+            pest_class: Name of pest class
+            
+        Returns:
+            Tuple of (description, treatment) strings
+        """
+        pest_info = {
+            "Aphids": (
+                "Small sap-sucking insects that cluster on new growth and undersides of leaves, causing distortion and stunting.",
+                "Apply insecticidal soap or neem oil. For severe infestations, consider systemic insecticides. Encourage beneficial insects like ladybugs."
+            ),
+            "Spider Mites": (
+                "Tiny arachnids that cause stippling on leaves and fine webbing. Thrive in hot, dry conditions.",
+                "Increase humidity and water pressure spray to reduce populations. Apply miticides if severe. Predatory mites can provide biological control."
+            ),
+            "Thrips": (
+                "Slender insects that rasp plant surfaces and suck sap, causing silvery scarring and distorted growth.",
+                "Use blue sticky traps for monitoring. Apply insecticidal soap or spinosad. Remove weeds that may host thrips."
+            ),
+            "Whiteflies": (
+                "Small white flying insects that cluster on leaf undersides. They excrete honeydew that leads to sooty mold.",
+                "Use yellow sticky traps. Apply insecticidal soap or neem oil. Consider parasitic wasps for biological control."
+            ),
+            "Leaf Miners": (
+                "Larvae that tunnel between leaf surfaces, creating distinctive winding trails or blotches.",
+                "Remove and destroy affected leaves. Use yellow sticky traps for adult flies. Apply spinosad or neem oil as a preventive measure."
+            ),
+            "Caterpillars": (
+                "Larvae of butterflies and moths that chew on leaves, causing irregular holes and substantial defoliation.",
+                "Handpick if infestation is small. Apply Bacillus thuringiensis (Bt) for biological control. Use pheromone traps for monitoring."
+            ),
+            "Beetle Damage": (
+                "Various beetles chew leaves, stems, or roots, often leaving characteristic feeding patterns.",
+                "Rotate crops to break pest cycles. Use row covers for protection. Apply appropriate insecticides if damage is severe."
+            ),
+            "Grasshoppers": (
+                "Large insects that consume large amounts of plant material, leaving irregular edges on leaves.",
+                "Use row covers for protection. Apply neem oil as a repellent. For severe infestations, consider insecticides or biological controls like Nosema locustae."
+            ),
+            "Fungal Infection": (
+                "Fungal pathogens causing spots, blotches, powdery or downy mildew, or rot on plant tissues.",
+                "Improve air circulation. Avoid overhead watering. Apply appropriate fungicides. Remove and destroy infected plant material."
+            ),
+            "Bacterial Infection": (
+                "Bacterial pathogens causing spots, blights, or wilts, often with water-soaked appearance and yellow halos.",
+                "Remove infected plants to prevent spread. Use copper-based bactericides preventively. Avoid working with plants when wet."
+            ),
+            "Viral Infection": (
+                "Viral pathogens causing mottling, distortion, stunting, or unusual coloration patterns.",
+                "Remove and destroy infected plants as there is no cure. Control insect vectors like aphids. Use virus-resistant varieties when available."
+            ),
+            "Nutrient Deficiency": (
+                "Symptoms resembling pest damage but caused by lack of essential nutrients, often showing specific patterns on leaves.",
+                "Conduct soil tests to confirm. Apply appropriate fertilizers to address specific deficiencies. Consider foliar feeding for quick results."
+            )
+        }
+        
+        # Return information for the pest class, or generic information if not found
+        default_info = (
+            "Unspecified plant health issue that may affect crop production.",
+            "Conduct further analysis to identify specific issue. Monitor affected plants closely."
+        )
+        
+        return pest_info.get(pest_class, default_info)

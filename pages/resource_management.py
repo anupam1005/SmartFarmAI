@@ -3,338 +3,645 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-from utils import resource_management
+from db_utils import (
+    get_farm_by_id, get_fields_by_farm, get_resources_by_farm,
+    add_resource, update_resource_quantity, record_resource_usage,
+    get_resource_usage_stats, get_resource_usage_by_field
+)
+from utils.resource_management import (
+    get_water_requirements, get_fertilizer_requirements,
+    get_water_saving_tips, get_fertilizer_application_tips
+)
+from utils.data_processing import generate_time_series
 
 def show():
-    st.header("Resource Management")
+    st.title("Resource Management")
     
-    # Create tabs for different resources
-    water_tab, fertilizer_tab, planning_tab = st.tabs(["Water Management", "Fertilizer Tracking", "Planning & Optimization"])
+    # Get farm ID from session state
+    if 'selected_farm_id' not in st.session_state:
+        st.error("No farm selected. Please select a farm from the sidebar.")
+        return
     
-    #----- Water Management Tab -----
-    with water_tab:
-        st.subheader("Water Usage Tracking")
+    farm_id = st.session_state['selected_farm_id']
+    farm = get_farm_by_id(farm_id)
+    
+    if not farm:
+        st.error("Selected farm not found in the database.")
+        return
+    
+    # Create tabs
+    tab1, tab2, tab3 = st.tabs(["Resource Inventory", "Resource Planning", "Usage History"])
+    
+    # TAB 1: RESOURCE INVENTORY
+    with tab1:
+        st.header("Resource Inventory")
         
-        # Water resource input section
-        col1, col2 = st.columns([2, 1])
+        # Current Resources
+        resources = get_resources_by_farm(farm_id)
         
-        with col1:
-            # Input form for water usage
-            with st.form("water_usage_form"):
-                st.markdown("### Record Water Usage")
+        if resources:
+            # Group resources by type
+            resource_types = {}
+            for resource in resources:
+                if resource.type not in resource_types:
+                    resource_types[resource.type] = []
+                resource_types[resource.type].append(resource)
+            
+            # Display resources by type
+            for resource_type, type_resources in resource_types.items():
+                st.subheader(f"{resource_type} Resources")
                 
-                # Form inputs
-                date = st.date_input("Date", datetime.now())
-                crop_type = st.selectbox("Crop", ["Maize", "Tomatoes", "Beans", "Cassava", "Sweet Potato"])
-                water_amount = st.number_input("Water Amount (liters)", min_value=0.0, max_value=10000.0, step=10.0)
-                water_source = st.selectbox("Water Source", ["Rainwater", "Irrigation", "Well", "River/Stream"])
-                irrigation_method = st.selectbox("Irrigation Method", ["Drip", "Sprinkler", "Flood", "Manual"])
+                # Create a DataFrame for easy display
+                data = []
+                for res in type_resources:
+                    data.append({
+                        "ID": res.id,
+                        "Name": res.name,
+                        "Quantity": res.quantity,
+                        "Unit": res.unit,
+                        "Last Updated": res.last_updated.strftime("%Y-%m-%d") if res.last_updated else "N/A"
+                    })
                 
-                # Submit button
-                submit_water = st.form_submit_button("Record Usage")
+                df = pd.DataFrame(data)
                 
-                if submit_water:
-                    # In production, this would save to a database
-                    st.success(f"Recorded {water_amount} liters of water usage for {crop_type} on {date}")
+                # Display the dataframe
+                st.dataframe(df, hide_index=True)
+                
+                # Create a chart of resource quantities
+                if len(type_resources) > 1:
+                    fig = px.bar(
+                        df,
+                        x="Name",
+                        y="Quantity",
+                        title=f"{resource_type} Quantities",
+                        labels={"Name": "Resource", "Quantity": f"Quantity ({type_resources[0].unit})"},
+                        color="Quantity",
+                        color_continuous_scale="Viridis"
+                    )
                     
-        with col2:
-            # Display water efficiency metrics
-            st.markdown("### Water Efficiency")
-            
-            # Example efficiency data - in production this would be calculated
-            efficiency_scores = {
-                'Maize': 78,
-                'Tomatoes': 85,
-                'Beans': 72,
-                'Cassava': 90,
-                'Sweet Potato': 81
-            }
-            
-            # Create a gauge chart for overall water efficiency
-            avg_efficiency = sum(efficiency_scores.values()) / len(efficiency_scores)
-            
-            fig = go.Figure(go.Indicator(
-                mode="gauge+number",
-                value=avg_efficiency,
-                domain={'x': [0, 1], 'y': [0, 1]},
-                title={'text': "Overall Water Efficiency Score"},
-                gauge={
-                    'axis': {'range': [None, 100]},
-                    'bar': {'color': "blue"},
-                    'steps': [
-                        {'range': [0, 50], 'color': "red"},
-                        {'range': [50, 75], 'color': "orange"},
-                        {'range': [75, 100], 'color': "green"},
-                    ],
-                    'threshold': {
-                        'line': {'color': "black", 'width': 4},
-                        'thickness': 0.75,
-                        'value': avg_efficiency
-                    }
-                }
-            ))
-            
-            fig.update_layout(height=200, margin=dict(l=20, r=20, t=50, b=20))
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Water saving tips
-            st.markdown("### Water Saving Tips")
-            st.info(resource_management.get_water_saving_tips())
+                    st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No resources found for this farm. Add resources below.")
         
-        # Water usage history
-        st.subheader("Water Usage History")
+        # Add New Resource Form
+        st.subheader("Add New Resource")
         
-        # Example data for water usage history - in production this would come from a database
-        dates = [(datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(14, -1, -1)]
-        water_usage = [120, 110, 135, 95, 80, 75, 130, 120, 145, 125, 105, 95, 85, 110, 100]
-        rainfall = [0, 0, 15, 22, 5, 0, 0, 0, 0, 10, 25, 5, 0, 0, 0]
-        
-        water_df = pd.DataFrame({
-            'Date': dates,
-            'Water Usage (L)': water_usage,
-            'Rainfall (mm)': rainfall
-        })
-        
-        # Plot water usage and rainfall
-        fig = px.bar(
-            water_df,
-            x='Date',
-            y=['Water Usage (L)', 'Rainfall (mm)'],
-            barmode='group',
-            labels={'value': 'Amount', 'variable': 'Metric'},
-            title='Water Usage vs Rainfall',
-            color_discrete_map={'Water Usage (L)': 'blue', 'Rainfall (mm)': 'skyblue'}
-        )
-        
-        fig.update_layout(height=400, xaxis_tickangle=-45)
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Water alerts and recommendations
-        with st.expander("Water Management Recommendations"):
-            st.markdown("""
-            - **Current Status**: Moderate water stress detected in Tomato crops
-            - **Weather Forecast Impact**: Expected rainfall in the next 3 days may reduce irrigation needs
-            - **Recommendation**: Reduce irrigation for Tomatoes by 20% for the next week
-            - **Water Conservation**: Consider adding mulch around plants to reduce evaporation
-            """)
-    
-    #----- Fertilizer Tracking Tab -----
-    with fertilizer_tab:
-        st.subheader("Fertilizer Management")
-        
-        # Fertilizer input section
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            # Input form for fertilizer usage
-            with st.form("fertilizer_usage_form"):
-                st.markdown("### Record Fertilizer Application")
-                
-                # Form inputs
-                date = st.date_input("Application Date", datetime.now(), key="fert_date")
-                crop_type = st.selectbox("Crop", ["Maize", "Tomatoes", "Beans", "Cassava", "Sweet Potato"], key="fert_crop")
-                fertilizer_type = st.selectbox("Fertilizer Type", ["NPK 17-17-17", "Urea", "DAP", "Organic Compost", "Manure"])
-                amount = st.number_input("Amount (kg)", min_value=0.0, max_value=1000.0, step=1.0)
-                application_method = st.selectbox("Application Method", ["Broadcast", "Side-dressing", "Foliar Spray", "Drip Fertigation"])
-                
-                # Submit button
-                submit_fertilizer = st.form_submit_button("Record Application")
-                
-                if submit_fertilizer:
-                    # In production, this would save to a database
-                    st.success(f"Recorded {amount} kg of {fertilizer_type} application for {crop_type} on {date}")
-        
-        with col2:
-            # Display fertilizer stocks
-            st.markdown("### Fertilizer Stock Levels")
-            
-            # Example stock data - in production this would come from database
-            fertilizer_stocks = {
-                'NPK 17-17-17': 65,
-                'Urea': 40,
-                'DAP': 25,
-                'Organic Compost': 90,
-                'Manure': 70
-            }
-            
-            # Create bar chart for fertilizer stocks
-            stock_df = pd.DataFrame({
-                'Fertilizer': list(fertilizer_stocks.keys()),
-                'Stock (%)': list(fertilizer_stocks.values())
-            })
-            
-            fig = px.bar(
-                stock_df,
-                x='Fertilizer',
-                y='Stock (%)',
-                color='Stock (%)',
-                color_continuous_scale=[(0, "red"), (0.5, "yellow"), (1, "green")],
-                range_color=[0, 100],
-                text='Stock (%)'
-            )
-            
-            fig.update_layout(height=300, xaxis_tickangle=-45)
-            fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # Fertilizer application history
-        st.subheader("Fertilizer Application History")
-        
-        # Example data for fertilizer history - in production this would come from a database
-        fert_history = {
-            'Date': ['2023-10-15', '2023-10-05', '2023-09-25', '2023-09-10', '2023-08-28'],
-            'Crop': ['Maize', 'Tomatoes', 'Beans', 'Maize', 'Tomatoes'],
-            'Fertilizer Type': ['NPK 17-17-17', 'Organic Compost', 'DAP', 'Urea', 'NPK 17-17-17'],
-            'Amount (kg)': [25, 40, 15, 20, 30],
-            'Application Method': ['Broadcast', 'Side-dressing', 'Broadcast', 'Foliar Spray', 'Broadcast']
-        }
-        
-        fert_df = pd.DataFrame(fert_history)
-        st.dataframe(fert_df, use_container_width=True)
-        
-        # Fertilizer recommendations
-        with st.expander("Fertilizer Recommendations"):
-            st.markdown("""
-            - **Current Soil Status**: Nitrogen deficiency detected in Maize crop areas
-            - **Recommendation**: Apply 50kg/hectare of Urea within the next week
-            - **Application Method**: Side-dressing would be most effective for current growth stage
-            - **Remember**: Apply fertilizers in the early morning or late afternoon to reduce nutrient loss
-            """)
-            
-        # Soil nutrient levels visualization
-        st.subheader("Soil Nutrient Levels")
-        
-        # Example data for soil nutrients - in production this would come from soil tests
-        nutrients = {
-            'Nutrient': ['Nitrogen (N)', 'Phosphorus (P)', 'Potassium (K)', 'Calcium (Ca)', 'Magnesium (Mg)'],
-            'Current Level': [45, 60, 70, 80, 55],
-            'Optimal Level': [70, 65, 75, 85, 60]
-        }
-        
-        nut_df = pd.DataFrame(nutrients)
-        
-        # Create comparative bar chart
-        fig = px.bar(
-            nut_df,
-            x='Nutrient',
-            y=['Current Level', 'Optimal Level'],
-            barmode='group',
-            color_discrete_map={'Current Level': 'orange', 'Optimal Level': 'green'},
-            title='Current vs. Optimal Nutrient Levels'
-        )
-        
-        fig.update_layout(height=400)
-        st.plotly_chart(fig, use_container_width=True)
-    
-    #----- Planning & Optimization Tab -----
-    with planning_tab:
-        st.subheader("Resource Planning & Optimization")
-        
-        # Resource efficiency metrics
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("### Resource Efficiency Metrics")
-            
-            # Example efficiency metrics - in production these would be calculated
-            metrics = {
-                'Metric': ['Water Use Efficiency', 'Fertilizer Efficiency', 'Yield per Resource Unit', 'Resource Cost per Hectare'],
-                'Score': [78, 65, 82, 70],
-                'Trend': ['↑', '↑', '→', '↓'],
-                'Industry Avg': [65, 60, 75, 75]
-            }
-            
-            metrics_df = pd.DataFrame(metrics)
-            st.dataframe(metrics_df, use_container_width=True)
-        
-        with col2:
-            st.markdown("### Resource Optimization Potential")
-            
-            # Example optimization potential data
-            optimization = {
-                'Resource': ['Water', 'Fertilizer', 'Labor', 'Energy'],
-                'Potential Savings': [25, 15, 10, 20]
-            }
-            
-            opt_df = pd.DataFrame(optimization)
-            
-            fig = px.bar(
-                opt_df,
-                x='Resource',
-                y='Potential Savings',
-                color='Potential Savings',
-                labels={'Potential Savings': 'Potential Savings (%)'},
-                text='Potential Savings'
-            )
-            
-            fig.update_traces(texttemplate='%{text}%', textposition='outside')
-            fig.update_layout(height=300)
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # Cost analysis
-        st.subheader("Resource Cost Analysis")
-        
-        # Example cost data - in production this would come from user inputs
-        costs = {
-            'Month': ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct'],
-            'Water': [120, 110, 100, 90, 110, 130, 150, 140, 120, 100],
-            'Fertilizer': [80, 0, 150, 0, 90, 0, 160, 0, 100, 0],
-            'Labor': [200, 180, 210, 190, 220, 200, 230, 210, 220, 190],
-            'Other': [50, 40, 60, 45, 55, 50, 65, 55, 60, 50]
-        }
-        
-        costs_df = pd.DataFrame(costs)
-        costs_df['Total'] = costs_df['Water'] + costs_df['Fertilizer'] + costs_df['Labor'] + costs_df['Other']
-        
-        # Create stacked bar chart for costs
-        fig = px.bar(
-            costs_df,
-            x='Month',
-            y=['Water', 'Fertilizer', 'Labor', 'Other'],
-            title='Monthly Resource Costs Breakdown',
-            labels={'value': 'Cost', 'variable': 'Resource Type'},
-            color_discrete_map={
-                'Water': 'blue',
-                'Fertilizer': 'green',
-                'Labor': 'orange',
-                'Other': 'gray'
-            }
-        )
-        
-        fig.update_layout(height=400)
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Resource planning tool
-        st.subheader("Resource Planning Tool")
-        
-        # Simple planning calculator
-        with st.expander("Seasonal Resource Calculator"):
-            st.markdown("Estimate resources needed for the upcoming season")
-            
+        with st.form("add_resource_form"):
             col1, col2 = st.columns(2)
             
             with col1:
-                crop = st.selectbox("Crop Type", ["Maize", "Tomatoes", "Beans", "Cassava", "Sweet Potato"], key="plan_crop")
-                area = st.number_input("Area (hectares)", min_value=0.1, max_value=100.0, value=1.0, step=0.1)
-                season = st.selectbox("Growing Season", ["Rainy Season", "Dry Season", "Short Rains", "Long Rains"])
+                name = st.text_input("Resource Name")
+                resource_type = st.selectbox(
+                    "Resource Type",
+                    ["Water", "Fertilizer", "Seeds", "Pesticide", "Equipment", "Fuel", "Other"]
+                )
             
             with col2:
-                soil_type = st.selectbox("Soil Type", ["Clay", "Sandy", "Loam", "Silt", "Mixed"])
-                irrigation = st.selectbox("Irrigation Type", ["None", "Drip", "Sprinkler", "Flood", "Manual"])
-                target_yield = st.number_input("Target Yield (tons/ha)", min_value=0.5, max_value=20.0, value=5.0, step=0.5)
+                quantity = st.number_input("Quantity", min_value=0.0, step=0.1)
+                unit = st.text_input("Unit (e.g., liters, kg)")
             
-            if st.button("Calculate Resource Needs"):
-                # In production, this would run actual calculations based on models
-                st.success("Resource Calculation Complete!")
+            submit = st.form_submit_button("Add Resource")
+            
+            if submit:
+                if name and resource_type and quantity >= 0 and unit:
+                    add_resource(farm_id, name, resource_type, quantity, unit)
+                    st.success(f"Added {quantity} {unit} of {name} to inventory.")
+                    st.experimental_rerun()
+                else:
+                    st.error("Please fill all fields with valid values.")
+        
+        # Update Resource Form
+        if resources:
+            st.subheader("Update Resource Quantity")
+            
+            with st.form("update_resource_form"):
+                # Create a dictionary of resource names and IDs for selection
+                resource_options = {f"{r.name} ({r.quantity} {r.unit})": r.id for r in resources}
                 
-                # Example calculation results
-                results = {
-                    'Resource': ['Water (liters)', 'NPK Fertilizer (kg)', 'Seeds (kg)', 'Labor (person-days)'],
-                    'Estimated Amount': [45000, 250, 25, 45],
-                    'Estimated Cost': ['$450', '$125', '$75', '$225']
-                }
+                # Create columns for the form
+                col1, col2 = st.columns(2)
                 
-                results_df = pd.DataFrame(results)
-                st.dataframe(results_df, use_container_width=True)
+                with col1:
+                    selected_resource = st.selectbox(
+                        "Select Resource",
+                        list(resource_options.keys())
+                    )
+                    
+                    # Get the selected resource ID
+                    resource_id = resource_options[selected_resource]
+                    
+                    # Find the resource object
+                    resource = next((r for r in resources if r.id == resource_id), None)
+                    
+                with col2:
+                    # Show current quantity
+                    if resource:
+                        st.write(f"Current Quantity: {resource.quantity} {resource.unit}")
+                        
+                        # Input for new quantity
+                        new_quantity = st.number_input(
+                            "New Quantity",
+                            min_value=0.0,
+                            value=resource.quantity,
+                            step=0.1
+                        )
                 
-                st.info("These estimates are based on regional averages and may vary based on specific conditions.")
+                # Submit button
+                submit = st.form_submit_button("Update Quantity")
+                
+                if submit and resource:
+                    if new_quantity >= 0:
+                        update_resource_quantity(resource_id, new_quantity)
+                        st.success(f"Updated {resource.name} quantity to {new_quantity} {resource.unit}.")
+                        st.experimental_rerun()
+                    else:
+                        st.error("Quantity cannot be negative.")
+        
+        # Record Resource Usage Form
+        if resources and get_fields_by_farm(farm_id):
+            st.subheader("Record Resource Usage")
+            
+            with st.form("record_usage_form"):
+                # Get fields for this farm
+                fields = get_fields_by_farm(farm_id)
+                field_options = {field.name: field.id for field in fields}
+                
+                # Create columns for the form
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Resource selection
+                    resource_options = {f"{r.name} ({r.type})": r.id for r in resources}
+                    selected_resource = st.selectbox(
+                        "Select Resource",
+                        list(resource_options.keys()),
+                        key="usage_resource"
+                    )
+                    
+                    # Get the selected resource ID
+                    resource_id = resource_options[selected_resource]
+                    
+                    # Find the resource object
+                    resource = next((r for r in resources if r.id == resource_id), None)
+                    
+                    # Field selection
+                    selected_field = st.selectbox(
+                        "Select Field",
+                        list(field_options.keys())
+                    )
+                    
+                    # Get the selected field ID
+                    field_id = field_options[selected_field]
+                
+                with col2:
+                    # Show current available quantity
+                    if resource:
+                        st.write(f"Available: {resource.quantity} {resource.unit}")
+                        
+                        # Input for usage quantity
+                        usage_quantity = st.number_input(
+                            f"Usage Quantity ({resource.unit})",
+                            min_value=0.0,
+                            max_value=resource.quantity,
+                            step=0.1
+                        )
+                    
+                    # Application method
+                    application_method = st.text_input("Application Method (optional)")
+                    
+                    # Notes
+                    notes = st.text_area("Notes (optional)", height=80)
+                
+                # Submit button
+                submit = st.form_submit_button("Record Usage")
+                
+                if submit and resource:
+                    if 0 < usage_quantity <= resource.quantity:
+                        # Record the usage
+                        record_resource_usage(resource_id, field_id, usage_quantity, application_method, notes)
+                        
+                        # Update the resource quantity
+                        new_quantity = resource.quantity - usage_quantity
+                        update_resource_quantity(resource_id, new_quantity)
+                        
+                        st.success(f"Recorded usage of {usage_quantity} {resource.unit} of {resource.name} on {selected_field}.")
+                        st.experimental_rerun()
+                    elif usage_quantity == 0:
+                        st.warning("Usage quantity cannot be zero.")
+                    else:
+                        st.error("Usage quantity cannot exceed available quantity.")
+    
+    # TAB 2: RESOURCE PLANNING
+    with tab2:
+        st.header("Resource Planning")
+        
+        # Get fields for this farm
+        fields = get_fields_by_farm(farm_id)
+        
+        if not fields:
+            st.info("No fields found for this farm. Add fields to plan resources.")
+        else:
+            # Resource calculator
+            st.subheader("Resource Requirement Calculator")
+            
+            # Field selection
+            field_options = {field.name: field for field in fields}
+            selected_field_name = st.selectbox(
+                "Select Field",
+                list(field_options.keys()),
+                key="planning_field"
+            )
+            
+            # Get the selected field
+            field = field_options[selected_field_name]
+            
+            # Display field info
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write(f"**Area:** {field.area_size or 'Not specified'} hectares")
+                st.write(f"**Soil Type:** {field.soil_type or 'Not specified'}")
+            
+            with col2:
+                st.write(f"**Current Crop:** {field.current_crop or 'None'}")
+                if field.planting_date:
+                    days_since_planting = (datetime.now() - field.planting_date).days
+                    st.write(f"**Days Since Planting:** {days_since_planting}")
+            
+            # Create columns for water and fertilizer calculators
+            water_col, fertilizer_col = st.columns(2)
+            
+            # WATER CALCULATOR
+            with water_col:
+                st.subheader("Water Requirements")
+                
+                with st.form("water_calculator_form"):
+                    # Crop selection
+                    crop = st.selectbox(
+                        "Crop Type",
+                        ["Maize", "Rice", "Wheat", "Soybeans", "Tomatoes", 
+                         "Potatoes", "Beans", "Cotton", "Sunflower", "Cassava"],
+                        index=0 if not field.current_crop else 0
+                    )
+                    
+                    # Growth stage selection
+                    growth_stage = st.selectbox(
+                        "Growth Stage",
+                        ["Germination", "Vegetative", "Flowering", "Yield Formation", "Ripening"]
+                    )
+                    
+                    # Environmental parameters
+                    temperature = st.slider("Temperature (°C)", 0, 40, 25)
+                    rainfall = st.slider("Recent Rainfall (mm)", 0, 100, 0)
+                    
+                    # Calculate button
+                    calculate = st.form_submit_button("Calculate Water Needs")
+                    
+                    if calculate:
+                        if field.area_size and field.soil_type:
+                            # Calculate water requirements
+                            water_req = get_water_requirements(
+                                crop, growth_stage, field.area_size, field.soil_type, 
+                                temperature, rainfall
+                            )
+                            
+                            # Store in session state for display
+                            st.session_state['water_requirements'] = {
+                                'total': water_req,
+                                'per_ha': water_req / field.area_size if field.area_size > 0 else 0
+                            }
+                        else:
+                            st.error("Field area size and soil type must be specified.")
+                
+                # Display water requirements if calculated
+                if 'water_requirements' in st.session_state:
+                    req = st.session_state['water_requirements']
+                    
+                    st.success(f"**Total Water Needed:** {req['total']:,} liters")
+                    st.info(f"**Per Hectare:** {req['per_ha']:,.1f} liters/ha")
+                    
+                    # Water saving tip
+                    with st.expander("Water Saving Tip"):
+                        st.write(get_water_saving_tips())
+            
+            # FERTILIZER CALCULATOR
+            with fertilizer_col:
+                st.subheader("Fertilizer Requirements")
+                
+                with st.form("fertilizer_calculator_form"):
+                    # Crop selection
+                    fert_crop = st.selectbox(
+                        "Crop Type",
+                        ["Maize", "Rice", "Wheat", "Soybeans", "Tomatoes", 
+                         "Potatoes", "Beans", "Cotton", "Sunflower", "Cassava"],
+                        index=0 if not field.current_crop else 0,
+                        key="fert_crop"
+                    )
+                    
+                    # Growth stage selection
+                    fert_growth_stage = st.selectbox(
+                        "Growth Stage",
+                        ["Germination", "Vegetative", "Flowering", "Yield Formation", "Ripening"],
+                        key="fert_growth_stage"
+                    )
+                    
+                    # Soil nutrients (optional)
+                    st.write("Soil Nutrient Levels (optional, kg/ha)")
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        nitrogen = st.number_input("Nitrogen (N)", min_value=0.0, step=1.0)
+                    
+                    with col2:
+                        phosphorus = st.number_input("Phosphorus (P)", min_value=0.0, step=1.0)
+                    
+                    with col3:
+                        potassium = st.number_input("Potassium (K)", min_value=0.0, step=1.0)
+                    
+                    # Soil nutrients dictionary
+                    soil_nutrients = {
+                        "n": nitrogen,
+                        "p": phosphorus,
+                        "k": potassium
+                    } if nitrogen > 0 or phosphorus > 0 or potassium > 0 else None
+                    
+                    # Calculate button
+                    calculate_fert = st.form_submit_button("Calculate Fertilizer Needs")
+                    
+                    if calculate_fert:
+                        if field.area_size:
+                            # Calculate fertilizer requirements
+                            fert_req = get_fertilizer_requirements(
+                                fert_crop, fert_growth_stage, field.area_size, soil_nutrients
+                            )
+                            
+                            # Store in session state for display
+                            st.session_state['fertilizer_requirements'] = fert_req
+                        else:
+                            st.error("Field area size must be specified.")
+                
+                # Display fertilizer requirements if calculated
+                if 'fertilizer_requirements' in st.session_state:
+                    fert_req = st.session_state['fertilizer_requirements']
+                    
+                    # Display required nutrients
+                    st.success("**Required Nutrients:**")
+                    for nutrient, amount in fert_req['nutrient_requirements'].items():
+                        st.write(f"• {nutrient}: {amount} kg")
+                    
+                    # Display recommended fertilizer types
+                    st.info("**Recommended Fertilizer Types:**")
+                    for fert_type in fert_req['fertilizer_types']:
+                        st.write(f"• {fert_type}")
+                    
+                    # Application timing and notes
+                    with st.expander("Application Timing"):
+                        st.write(fert_req['application_timing'])
+                    
+                    with st.expander("Application Notes"):
+                        st.write(fert_req['notes'])
+                    
+                    # Fertilizer application tip
+                    with st.expander("Fertilizer Application Tip"):
+                        st.write(get_fertilizer_application_tips())
+            
+            # Resource Forecast
+            st.subheader("Resource Forecast (30 Days)")
+            
+            # Get current resources
+            resources = get_resources_by_farm(farm_id)
+            resource_types = set(r.type for r in resources)
+            
+            # Generate forecast for each resource type
+            if resources:
+                # Create columns for water and fertilizer forecasts if those types exist
+                forecast_cols = st.columns(min(2, len(resource_types)))
+                
+                col_idx = 0
+                for resource_type in ["Water", "Fertilizer"]:
+                    if resource_type in resource_types:
+                        with forecast_cols[col_idx]:
+                            st.write(f"**{resource_type} Forecast**")
+                            
+                            # Generate a synthetic forecast for demonstration
+                            # In a real app, this would use actual historical data and machine learning
+                            forecast_data = generate_time_series(
+                                days=30,
+                                base_value=1000 if resource_type == "Water" else 50,
+                                volatility=100 if resource_type == "Water" else 5,
+                                trend=10 if resource_type == "Water" else 1
+                            )
+                            
+                            # Create forecast chart
+                            fig = px.line(
+                                forecast_data,
+                                x="date",
+                                y="value",
+                                title=f"Projected {resource_type} Usage",
+                                labels={"date": "Date", "value": f"Usage ({resources[col_idx].unit})"}
+                            )
+                            
+                            # Add current inventory line
+                            total_inventory = sum(r.quantity for r in resources if r.type == resource_type)
+                            fig.add_hline(
+                                y=total_inventory, 
+                                line_dash="dash", 
+                                line_color="green",
+                                annotation_text=f"Current Inventory ({total_inventory:.1f})",
+                                annotation_position="bottom right"
+                            )
+                            
+                            # Add "Low Inventory" threshold line (30% of current)
+                            low_threshold = total_inventory * 0.3
+                            fig.add_hline(
+                                y=low_threshold, 
+                                line_dash="dash", 
+                                line_color="red",
+                                annotation_text="Low Inventory Threshold",
+                                annotation_position="bottom left"
+                            )
+                            
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            # Calculate days until resupply needed
+                            if forecast_data["value"].sum() > 0:
+                                usage_per_day = forecast_data["value"].mean()
+                                days_until_resupply = int(low_threshold / usage_per_day) if usage_per_day > 0 else 30
+                                days_until_resupply = min(30, max(0, days_until_resupply))
+                                
+                                if days_until_resupply < 7:
+                                    st.warning(f"⚠️ Resupply needed in approximately {days_until_resupply} days!")
+                                elif days_until_resupply < 14:
+                                    st.info(f"ℹ️ Resupply may be needed in about {days_until_resupply} days.")
+                                else:
+                                    st.success(f"✓ Inventory should be sufficient for at least {days_until_resupply} days.")
+                        
+                        col_idx += 1
+                        if col_idx >= len(forecast_cols):
+                            break
+            else:
+                st.info("Add resources to see forecast data.")
+    
+    # TAB 3: USAGE HISTORY
+    with tab3:
+        st.header("Resource Usage History")
+        
+        # Get fields for this farm
+        fields = get_fields_by_farm(farm_id)
+        
+        if not fields:
+            st.info("No fields found for this farm.")
+        else:
+            # Field selection for usage history
+            field_options = {field.name: field.id for field in fields}
+            field_options["All Fields"] = None  # Option to view all fields
+            
+            selected_field_name = st.selectbox(
+                "Select Field",
+                list(field_options.keys()),
+                key="history_field"
+            )
+            
+            # Get the selected field ID (None for all fields)
+            selected_field_id = field_options[selected_field_name]
+            
+            # Date range selection
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                start_date = st.date_input(
+                    "Start Date",
+                    value=datetime.now() - timedelta(days=30),
+                    max_value=datetime.now()
+                )
+            
+            with col2:
+                end_date = st.date_input(
+                    "End Date",
+                    value=datetime.now(),
+                    max_value=datetime.now()
+                )
+            
+            # Ensure valid date range
+            if start_date <= end_date:
+                # Get resource usage for the selected field(s) and date range
+                if selected_field_id is not None:
+                    usage_records = get_resource_usage_by_field(
+                        selected_field_id,
+                        start_date=start_date,
+                        end_date=end_date
+                    )
+                else:
+                    # Combine usage from all fields
+                    usage_records = []
+                    for field_id in field_options.values():
+                        if field_id is not None:
+                            field_usage = get_resource_usage_by_field(
+                                field_id,
+                                start_date=start_date,
+                                end_date=end_date
+                            )
+                            usage_records.extend(field_usage)
+                
+                if usage_records:
+                    # Process usage records
+                    usage_data = []
+                    for record in usage_records:
+                        field = next((f for f in fields if f.id == record.field_id), None)
+                        field_name = field.name if field else "Unknown"
+                        
+                        usage_data.append({
+                            "Date": record.date,
+                            "Field": field_name,
+                            "Resource": record.resource.name,
+                            "Type": record.resource.type,
+                            "Quantity": record.quantity,
+                            "Unit": record.resource.unit,
+                            "Application Method": record.application_method or "Not specified",
+                            "Notes": record.notes or ""
+                        })
+                    
+                    # Convert to DataFrame
+                    df = pd.DataFrame(usage_data)
+                    
+                    # Display usage table
+                    st.subheader("Usage Records")
+                    st.dataframe(df[["Date", "Field", "Resource", "Type", "Quantity", "Unit"]], hide_index=True)
+                    
+                    # Create summary visualizations
+                    st.subheader("Usage Summary")
+                    
+                    # Summary by resource type
+                    type_summary = df.groupby("Type").agg({"Quantity": "sum"}).reset_index()
+                    
+                    # Create pie chart for resource type distribution
+                    fig = px.pie(
+                        type_summary,
+                        names="Type",
+                        values="Quantity",
+                        title="Resource Usage by Type"
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Summary by field
+                    if selected_field_id is None and len(field_options) > 1:
+                        field_summary = df.groupby("Field").agg({"Quantity": "sum"}).reset_index()
+                        
+                        # Create bar chart for field distribution
+                        fig = px.bar(
+                            field_summary,
+                            x="Field",
+                            y="Quantity",
+                            title="Resource Usage by Field",
+                            color="Field"
+                        )
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Timeline of usage
+                    # Convert date column to datetime if it's not already
+                    if not pd.api.types.is_datetime64_dtype(df["Date"]):
+                        df["Date"] = pd.to_datetime(df["Date"])
+                    
+                    # Group by date and resource type
+                    timeline_data = df.groupby(["Date", "Type"]).agg({"Quantity": "sum"}).reset_index()
+                    
+                    # Create line chart
+                    fig = px.line(
+                        timeline_data,
+                        x="Date",
+                        y="Quantity",
+                        color="Type",
+                        title="Resource Usage Timeline",
+                        markers=True
+                    )
+                    
+                    # Customize layout
+                    fig.update_layout(
+                        xaxis_title="Date",
+                        yaxis_title="Quantity Used",
+                        hovermode="x unified"
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Detailed usage records in expandable sections
+                    st.subheader("Detailed Records")
+                    
+                    for i, record in enumerate(sorted(usage_data, key=lambda x: x["Date"], reverse=True)):
+                        with st.expander(f"{record['Date'].strftime('%Y-%m-%d')} - {record['Resource']} ({record['Quantity']} {record['Unit']})"):
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                st.write(f"**Field:** {record['Field']}")
+                                st.write(f"**Resource:** {record['Resource']} ({record['Type']})")
+                                st.write(f"**Quantity:** {record['Quantity']} {record['Unit']}")
+                            
+                            with col2:
+                                st.write(f"**Application Method:** {record['Application Method']}")
+                                st.write(f"**Notes:** {record['Notes']}")
+                else:
+                    st.info(f"No resource usage records found for {selected_field_name} in the selected date range.")
+            else:
+                st.error("End date must be after start date.")

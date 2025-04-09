@@ -1,140 +1,70 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">
-  <!-- Sky -->
-  <rect width="800" height="300" fill="#87CEEB" />
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+  <!-- Sky and Background -->
+  <rect x="0" y="0" width="400" height="250" fill="#87CEEB"/>
+  <rect x="0" y="250" width="400" height="150" fill="#8B4513"/>
   
   <!-- Sun -->
-  <circle cx="700" cy="100" r="60" fill="#FFD700" />
-  <circle cx="700" cy="100" r="50" fill="#FDB813" />
+  <circle cx="330" cy="70" r="40" fill="#FFFF00"/>
+  <circle cx="330" cy="70" r="30" fill="#FFA500"/>
   
-  <!-- Clouds -->
-  <g fill="#FFFFFF">
-    <ellipse cx="150" cy="80" rx="60" ry="30" />
-    <ellipse cx="190" cy="80" rx="60" ry="40" />
-    <ellipse cx="230" cy="80" rx="50" ry="30" />
-    
-    <ellipse cx="520" cy="120" rx="70" ry="35" />
-    <ellipse cx="560" cy="120" rx="60" ry="40" />
-    <ellipse cx="600" cy="120" rx="55" ry="30" />
-  </g>
+  <!-- Cloud -->
+  <ellipse cx="90" cy="80" rx="40" ry="20" fill="white"/>
+  <ellipse cx="110" cy="65" rx="30" ry="15" fill="white"/>
+  <ellipse cx="70" cy="65" rx="30" ry="15" fill="white"/>
   
-  <!-- Green fields -->
-  <rect y="300" width="800" height="200" fill="#4CAF50" />
+  <!-- Mountains -->
+  <polygon points="0,250 100,150 200,250" fill="#808080"/>
+  <polygon points="150,250 250,100 350,250" fill="#A9A9A9"/>
+  <polygon points="300,250 370,170 400,250" fill="#696969"/>
+
+  <!-- Farmhouse -->
+  <rect x="70" y="190" width="90" height="60" fill="#CD853F"/>
+  <polygon points="70,190 115,150 160,190" fill="#A52A2A"/>
+  <rect x="95" y="210" width="20" height="40" fill="#8B4513"/>
+  <rect x="125" y="200" width="15" height="15" fill="#87CEEB"/>
   
-  <!-- Different crop fields -->
-  <rect x="50" y="320" width="200" height="150" fill="#8BC34A" />
-  <g stroke="#558B2F" stroke-width="2">
-    <line x1="70" y1="320" x2="70" y2="470" />
-    <line x1="90" y1="320" x2="90" y2="470" />
-    <line x1="110" y1="320" x2="110" y2="470" />
-    <line x1="130" y1="320" x2="130" y2="470" />
-    <line x1="150" y1="320" x2="150" y2="470" />
-    <line x1="170" y1="320" x2="170" y2="470" />
-    <line x1="190" y1="320" x2="190" y2="470" />
-    <line x1="210" y1="320" x2="210" y2="470" />
-    <line x1="230" y1="320" x2="230" y2="470" />
-  </g>
+  <!-- Fence -->
+  <line x1="0" y1="265" x2="400" y2="265" stroke="white" stroke-width="3"/>
+  <line x1="30" y1="255" x2="30" y2="275" stroke="white" stroke-width="3"/>
+  <line x1="70" y1="255" x2="70" y2="275" stroke="white" stroke-width="3"/>
+  <line x1="110" y1="255" x2="110" y2="275" stroke="white" stroke-width="3"/>
+  <line x1="150" y1="255" x2="150" y2="275" stroke="white" stroke-width="3"/>
+  <line x1="190" y1="255" x2="190" y2="275" stroke="white" stroke-width="3"/>
+  <line x1="230" y1="255" x2="230" y2="275" stroke="white" stroke-width="3"/>
+  <line x1="270" y1="255" x2="270" y2="275" stroke="white" stroke-width="3"/>
+  <line x1="310" y1="255" x2="310" y2="275" stroke="white" stroke-width="3"/>
+  <line x1="350" y1="255" x2="350" y2="275" stroke="white" stroke-width="3"/>
+  <line x1="390" y1="255" x2="390" y2="275" stroke="white" stroke-width="3"/>
   
-  <!-- Second field - row crops -->
-  <rect x="300" y="320" width="200" height="150" fill="#8D6E63" />
-  <g fill="#CDDC39">
-    <rect x="310" y="330" width="10" height="10" />
-    <rect x="340" y="330" width="10" height="10" />
-    <rect x="370" y="330" width="10" height="10" />
-    <rect x="400" y="330" width="10" height="10" />
-    <rect x="430" y="330" width="10" height="10" />
-    <rect x="460" y="330" width="10" height="10" />
-    
-    <rect x="310" y="360" width="10" height="10" />
-    <rect x="340" y="360" width="10" height="10" />
-    <rect x="370" y="360" width="10" height="10" />
-    <rect x="400" y="360" width="10" height="10" />
-    <rect x="430" y="360" width="10" height="10" />
-    <rect x="460" y="360" width="10" height="10" />
-    
-    <rect x="310" y="390" width="10" height="10" />
-    <rect x="340" y="390" width="10" height="10" />
-    <rect x="370" y="390" width="10" height="10" />
-    <rect x="400" y="390" width="10" height="10" />
-    <rect x="430" y="390" width="10" height="10" />
-    <rect x="460" y="390" width="10" height="10" />
-    
-    <rect x="310" y="420" width="10" height="10" />
-    <rect x="340" y="420" width="10" height="10" />
-    <rect x="370" y="420" width="10" height="10" />
-    <rect x="400" y="420" width="10" height="10" />
-    <rect x="430" y="420" width="10" height="10" />
-    <rect x="460" y="420" width="10" height="10" />
-    
-    <rect x="310" y="450" width="10" height="10" />
-    <rect x="340" y="450" width="10" height="10" />
-    <rect x="370" y="450" width="10" height="10" />
-    <rect x="400" y="450" width="10" height="10" />
-    <rect x="430" y="450" width="10" height="10" />
-    <rect x="460" y="450" width="10" height="10" />
-  </g>
+  <!-- Fields -->
+  <rect x="200" y="180" width="180" height="70" fill="#228B22"/>
+  <line x1="200" y1="200" x2="380" y2="200" stroke="#7CFC00" stroke-width="2"/>
+  <line x1="200" y1="220" x2="380" y2="220" stroke="#7CFC00" stroke-width="2"/>
+  <line x1="200" y1="240" x2="380" y2="240" stroke="#7CFC00" stroke-width="2"/>
+  <line x1="240" y1="180" x2="240" y2="250" stroke="#7CFC00" stroke-width="2"/>
+  <line x1="280" y1="180" x2="280" y2="250" stroke="#7CFC00" stroke-width="2"/>
+  <line x1="320" y1="180" x2="320" y2="250" stroke="#7CFC00" stroke-width="2"/>
+  <line x1="360" y1="180" x2="360" y2="250" stroke="#7CFC00" stroke-width="2"/>
   
-  <!-- Third field - vegetables -->
-  <rect x="550" y="320" width="200" height="150" fill="#A5D6A7" />
-  <g fill="#388E3C">
-    <circle cx="575" cy="345" r="15" />
-    <circle cx="625" cy="345" r="15" />
-    <circle cx="675" cy="345" r="15" />
-    <circle cx="725" cy="345" r="15" />
-    
-    <circle cx="575" cy="395" r="15" />
-    <circle cx="625" cy="395" r="15" />
-    <circle cx="675" cy="395" r="15" />
-    <circle cx="725" cy="395" r="15" />
-    
-    <circle cx="575" cy="445" r="15" />
-    <circle cx="625" cy="445" r="15" />
-    <circle cx="675" cy="445" r="15" />
-    <circle cx="725" cy="445" r="15" />
-  </g>
+  <!-- Tractor -->
+  <rect x="30" y="280" width="40" height="20" fill="#FF0000"/>
+  <rect x="55" y="275" width="25" height="25" fill="#FF0000"/>
+  <circle cx="40" cy="300" r="10" fill="black"/>
+  <circle cx="70" cy="300" r="15" fill="black"/>
   
-  <!-- Farm house -->
-  <g>
-    <!-- House body -->
-    <rect x="100" y="200" width="120" height="100" fill="#FFA000" />
-    
-    <!-- Roof -->
-    <polygon points="100,200 220,200 160,150" fill="#5D4037" />
-    
-    <!-- Door -->
-    <rect x="145" y="250" width="30" height="50" fill="#795548" />
-    <circle cx="155" cy="275" r="3" fill="#FFC107" />
-    
-    <!-- Windows -->
-    <rect x="120" y="220" width="20" height="20" fill="#B3E5FC" />
-    <rect x="180" y="220" width="20" height="20" fill="#B3E5FC" />
-    
-    <!-- Chimney -->
-    <rect x="180" y="160" width="15" height="30" fill="#795548" />
-  </g>
+  <!-- Crops -->
+  <rect x="110" y="280" width="260" height="40" fill="#228B22"/>
+  <line x1="130" y1="280" x2="130" y2="270" stroke="#228B22" stroke-width="2"/>
+  <line x1="160" y1="280" x2="160" y2="265" stroke="#228B22" stroke-width="2"/>
+  <line x1="190" y1="280" x2="190" y2="270" stroke="#228B22" stroke-width="2"/>
+  <line x1="220" y1="280" x2="220" y2="267" stroke="#228B22" stroke-width="2"/>
+  <line x1="250" y1="280" x2="250" y2="272" stroke="#228B22" stroke-width="2"/>
+  <line x1="280" y1="280" x2="280" y2="268" stroke="#228B22" stroke-width="2"/>
+  <line x1="310" y1="280" x2="310" y2="271" stroke="#228B22" stroke-width="2"/>
+  <line x1="340" y1="280" x2="340" y2="273" stroke="#228B22" stroke-width="2"/>
   
-  <!-- Water tank / Irrigation system -->
-  <g>
-    <rect x="260" y="230" width="40" height="70" fill="#0288D1" />
-    <line x1="280" y1="300" x2="280" y2="320" stroke="#0288D1" stroke-width="5" />
-  </g>
-  
-  <!-- Small tractor -->
-  <g>
-    <rect x="600" y="250" width="50" height="30" fill="#F44336" />
-    <rect x="630" y="240" width="30" height="20" fill="#F44336" />
-    <circle cx="610" cy="285" r="15" fill="#424242" />
-    <circle cx="610" cy="285" r="7" fill="#9E9E9E" />
-    <circle cx="655" cy="285" r="10" fill="#424242" />
-    <circle cx="655" cy="285" r="5" fill="#9E9E9E" />
-  </g>
-  
-  <!-- Birds -->
-  <g fill="#000000">
-    <path d="M50,100 C55,95 60,105 65,100 C60,110 55,110 50,100 Z" />
-    <path d="M70,120 C75,115 80,125 85,120 C80,130 75,130 70,120 Z" />
-    <path d="M100,80 C105,75 110,85 115,80 C110,90 105,90 100,80 Z" />
-  </g>
-  
-  <!-- Text Label -->
-  <text x="400" y="480" font-family="Arial" font-size="24" text-anchor="middle" fill="#263238">SmartFarm: AI-Powered Farming</text>
+  <!-- Tree -->
+  <rect x="380" y="260" width="10" height="40" fill="#8B4513"/>
+  <circle cx="385" cy="250" r="20" fill="#006400"/>
 </svg>

@@ -1,312 +1,619 @@
-import os
 import requests
 import json
+import os
+import logging
 from datetime import datetime, timedelta
 import random
 
-# In a production environment, we would use a real weather API like OpenWeatherMap, Weather.com, etc.
-# For this demonstration, we'll implement a mock API that returns realistic but simulated data
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def get_api_key():
-    """
-    Get the API key for the weather service from environment variables
-    
-    Returns:
-        API key string
-    """
-    # In production, this would use an actual API key from environment variables
-    return os.getenv("WEATHER_API_KEY", "")
+# Optional OpenWeatherMap API key from environment variables
+OPENWEATHER_API_KEY = os.environ.get('OPENWEATHER_API_KEY')
 
-def get_current_weather(location=None):
+def get_current_weather(location):
     """
-    Get current weather conditions for the specified location
+    Get current weather data for a location
     
     Args:
-        location: Location string (city, coordinates, etc.)
+        location: Location name (e.g., "Countryside, CA") or coordinates (lat,lon)
         
     Returns:
-        Dictionary with current weather data
+        Dictionary with weather data or None if request failed
     """
-    api_key = get_api_key()
+    if not OPENWEATHER_API_KEY:
+        logger.warning("No OpenWeatherMap API key found. Using simulated weather data.")
+        return get_simulated_weather(location)
     
-    # In production, we would make an actual API call like this:
-    # if api_key and location:
-    #     url = f"https://api.weatherapi.com/v1/current.json?key={api_key}&q={location}"
-    #     response = requests.get(url)
-    #     if response.status_code == 200:
-    #         return response.json()
-    
-    # Since we don't have an actual API key, we'll return simulated data
-    current_date = datetime.now()
-    
-    # Generate realistic weather data based on current date
-    # This is just for demonstration purposes
-    month = current_date.month
-    
-    # Seasonal temperature and precipitation variations
-    if 3 <= month <= 5:  # Spring
-        temp = random.uniform(15, 25)
-        humidity = random.uniform(50, 70)
-        wind_speed = random.uniform(5, 15)
-        precipitation = random.uniform(0, 5)
-        condition = random.choice(["Partly Cloudy", "Sunny", "Light Rain"])
-    elif 6 <= month <= 8:  # Summer
-        temp = random.uniform(25, 35)
-        humidity = random.uniform(40, 60)
-        wind_speed = random.uniform(3, 10)
-        precipitation = random.uniform(0, 2)
-        condition = random.choice(["Sunny", "Clear", "Partly Cloudy"])
-    elif 9 <= month <= 11:  # Fall
-        temp = random.uniform(10, 20)
-        humidity = random.uniform(60, 80)
-        wind_speed = random.uniform(8, 18)
-        precipitation = random.uniform(0, 10)
-        condition = random.choice(["Cloudy", "Light Rain", "Partly Cloudy"])
-    else:  # Winter
-        temp = random.uniform(0, 10)
-        humidity = random.uniform(70, 90)
-        wind_speed = random.uniform(10, 20)
-        precipitation = random.uniform(0, 15)
-        condition = random.choice(["Cloudy", "Rain", "Snow"])
-    
-    # Small random change from yesterday
-    temp_change = random.uniform(-2, 2)
-    
-    # Soil moisture estimate based on recent precipitation
-    soil_moisture = min(100, max(30, 50 + precipitation * 3))
-    
-    # UV index based on season and cloud cover
-    uv_index = 8 if condition == "Sunny" and 3 <= month <= 8 else random.randint(2, 5)
-    
-    # Compile current weather data
-    weather_data = {
-        "temp": round(temp, 1),
-        "temp_change": round(temp_change, 1),
-        "humidity": round(humidity, 1),
-        "wind_speed": round(wind_speed, 1),
-        "wind_direction": random.choice(["N", "NE", "E", "SE", "S", "SW", "W", "NW"]),
-        "precipitation": round(precipitation, 1),
-        "condition": condition,
-        "pressure": round(random.uniform(990, 1020), 1),
-        "visibility": round(random.uniform(8, 10), 1),
-        "uv_index": uv_index,
-        "soil_moisture": round(soil_moisture, 1),
-        "updated": current_date.strftime("%Y-%m-%d %H:%M:%S")
-    }
-    
-    return weather_data
-
-def get_weather_forecast(location=None, days=7):
-    """
-    Get weather forecast for the specified location
-    
-    Args:
-        location: Location string (city, coordinates, etc.)
-        days: Number of days to forecast
+    try:
+        # Construct the API URL
+        base_url = "https://api.openweathermap.org/data/2.5/weather"
+        params = {
+            'q': location,
+            'appid': OPENWEATHER_API_KEY,
+            'units': 'metric'  # Temperature in Celsius
+        }
         
-    Returns:
-        List of dictionaries with forecast data
-    """
-    api_key = get_api_key()
-    
-    # In production, we would make an actual API call like this:
-    # if api_key and location:
-    #     url = f"https://api.weatherapi.com/v1/forecast.json?key={api_key}&q={location}&days={days}"
-    #     response = requests.get(url)
-    #     if response.status_code == 200:
-    #         return process_forecast(response.json())
-    
-    # Since we don't have an actual API key, we'll return simulated data
-    current_date = datetime.now()
-    
-    # Generate a realistic weather forecast
-    forecast = []
-    
-    for i in range(days):
-        forecast_date = current_date + timedelta(days=i)
-        month = forecast_date.month
+        # Handle coordinates if provided as "lat,lon"
+        if ',' in location and all(part.replace('.', '').replace('-', '').isdigit() for part in location.split(',')):
+            lat, lon = location.split(',')
+            params = {
+                'lat': lat.strip(),
+                'lon': lon.strip(),
+                'appid': OPENWEATHER_API_KEY,
+                'units': 'metric'
+            }
+            del params['q']
         
-        # Base conditions on season with some randomness
-        if 3 <= month <= 5:  # Spring
-            temp_max = random.uniform(18, 28)
-            temp_min = random.uniform(10, 15)
-            precipitation = random.uniform(0, 15) if random.random() < 0.4 else 0
-            condition = random.choice(["Partly Cloudy", "Sunny", "Light Rain", "Scattered Showers"])
-        elif 6 <= month <= 8:  # Summer
-            temp_max = random.uniform(28, 38)
-            temp_min = random.uniform(18, 25)
-            precipitation = random.uniform(0, 10) if random.random() < 0.3 else 0
-            condition = random.choice(["Sunny", "Clear", "Partly Cloudy", "Isolated Thunderstorms"])
-        elif 9 <= month <= 11:  # Fall
-            temp_max = random.uniform(15, 25)
-            temp_min = random.uniform(5, 15)
-            precipitation = random.uniform(0, 20) if random.random() < 0.5 else 0
-            condition = random.choice(["Cloudy", "Light Rain", "Partly Cloudy", "Showers"])
-        else:  # Winter
-            temp_max = random.uniform(5, 15)
-            temp_min = random.uniform(-5, 5)
-            precipitation = random.uniform(0, 25) if random.random() < 0.6 else 0
-            condition = random.choice(["Cloudy", "Rain", "Snow", "Sleet"])
+        # Make the API request
+        response = requests.get(base_url, params=params)
         
-        # Add some continuity with previous day for realism
-        if i > 0:
-            prev_temp_max = forecast[i-1]['temp_max']
-            prev_temp_min = forecast[i-1]['temp_min']
-            prev_condition = forecast[i-1]['condition']
+        if response.status_code == 200:
+            data = response.json()
             
-            # Smooth temperature changes
-            temp_max = (temp_max + prev_temp_max) / 2
-            temp_min = (temp_min + prev_temp_min) / 2
+            # Format the response
+            weather = {
+                'location': data['name'],
+                'country': data['sys']['country'],
+                'coordinates': {
+                    'lat': data['coord']['lat'],
+                    'lon': data['coord']['lon']
+                },
+                'temperature': data['main']['temp'],
+                'feels_like': data['main']['feels_like'],
+                'humidity': data['main']['humidity'],
+                'pressure': data['main']['pressure'],
+                'wind_speed': data['wind']['speed'],
+                'wind_direction': data['wind']['deg'],
+                'conditions': data['weather'][0]['main'],
+                'description': data['weather'][0]['description'],
+                'icon': data['weather'][0]['icon'],
+                'precipitation': data.get('rain', {}).get('1h', 0),
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
             
-            # Weather conditions tend to persist
-            if random.random() < 0.6:
-                condition = prev_condition
-        
-        # Wind speed based on conditions
-        if "Storm" in condition or "Rain" in condition:
-            wind_speed = random.uniform(10, 25)
+            return weather
         else:
-            wind_speed = random.uniform(5, 15)
-        
-        forecast.append({
-            "date": forecast_date.strftime("%Y-%m-%d"),
-            "temp_max": round(temp_max, 1),
-            "temp_min": round(temp_min, 1),
-            "precipitation": round(precipitation, 1),
-            "humidity": round(random.uniform(60, 90), 1),
-            "wind_speed": round(wind_speed, 1),
-            "wind_direction": random.choice(["N", "NE", "E", "SE", "S", "SW", "W", "NW"]),
-            "condition": condition
-        })
+            logger.error(f"Error fetching weather data: {response.status_code} - {response.text}")
+            return get_simulated_weather(location)
     
-    return forecast
+    except Exception as e:
+        logger.error(f"Exception in get_current_weather: {e}")
+        return get_simulated_weather(location)
 
-def get_historical_weather(location=None, start_date=None, end_date=None):
+def get_weather_forecast(location, days=5):
     """
-    Get historical weather data for the specified location and date range
+    Get weather forecast for a location
     
     Args:
-        location: Location string (city, coordinates, etc.)
-        start_date: Start date string in format YYYY-MM-DD
-        end_date: End date string in format YYYY-MM-DD
+        location: Location name (e.g., "Countryside, CA") or coordinates (lat,lon)
+        days: Number of days to forecast (max 5 for free tier)
+        
+    Returns:
+        List of dictionaries with forecast data or None if request failed
+    """
+    if not OPENWEATHER_API_KEY:
+        logger.warning("No OpenWeatherMap API key found. Using simulated forecast data.")
+        return get_simulated_forecast(location, days)
+    
+    try:
+        # Construct the API URL
+        base_url = "https://api.openweathermap.org/data/2.5/forecast"
+        params = {
+            'q': location,
+            'appid': OPENWEATHER_API_KEY,
+            'units': 'metric',  # Temperature in Celsius
+            'cnt': min(days * 8, 40)  # 8 measurements per day (3-hour intervals), max 40 for free tier
+        }
+        
+        # Handle coordinates if provided as "lat,lon"
+        if ',' in location and all(part.replace('.', '').replace('-', '').isdigit() for part in location.split(',')):
+            lat, lon = location.split(',')
+            params = {
+                'lat': lat.strip(),
+                'lon': lon.strip(),
+                'appid': OPENWEATHER_API_KEY,
+                'units': 'metric',
+                'cnt': min(days * 8, 40)
+            }
+            del params['q']
+        
+        # Make the API request
+        response = requests.get(base_url, params=params)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            # Process and format the forecast data
+            forecast = []
+            for item in data['list']:
+                forecast_time = datetime.fromtimestamp(item['dt'])
+                
+                # Format each forecast period
+                forecast_item = {
+                    'date': forecast_time.strftime('%Y-%m-%d'),
+                    'time': forecast_time.strftime('%H:%M:%S'),
+                    'temperature': item['main']['temp'],
+                    'feels_like': item['main']['feels_like'],
+                    'humidity': item['main']['humidity'],
+                    'pressure': item['main']['pressure'],
+                    'wind_speed': item['wind']['speed'],
+                    'wind_direction': item['wind']['deg'],
+                    'conditions': item['weather'][0]['main'],
+                    'description': item['weather'][0]['description'],
+                    'icon': item['weather'][0]['icon'],
+                    'precipitation': item.get('rain', {}).get('3h', 0),
+                }
+                
+                forecast.append(forecast_item)
+            
+            # Include location information
+            location_info = {
+                'location': data['city']['name'],
+                'country': data['city']['country'],
+                'coordinates': {
+                    'lat': data['city']['coord']['lat'],
+                    'lon': data['city']['coord']['lon']
+                }
+            }
+            
+            return {
+                'location': location_info,
+                'forecast': forecast
+            }
+        else:
+            logger.error(f"Error fetching forecast data: {response.status_code} - {response.text}")
+            return get_simulated_forecast(location, days)
+    
+    except Exception as e:
+        logger.error(f"Exception in get_weather_forecast: {e}")
+        return get_simulated_forecast(location, days)
+
+def get_historical_weather(location, days=30):
+    """
+    Get historical weather data for a location
+    
+    Note: Free tier of OpenWeatherMap API doesn't support historical weather.
+    This would require a premium subscription.
+    
+    For demonstration, we'll generate simulated historical data.
+    
+    Args:
+        location: Location name (e.g., "Countryside, CA")
+        days: Number of days of historical data
         
     Returns:
         List of dictionaries with historical weather data
     """
-    api_key = get_api_key()
+    return get_simulated_historical(location, days)
+
+def get_simulated_weather(location):
+    """
+    Generate simulated current weather data for demonstration purposes
     
-    # In production, we would make actual API calls to get historical data
-    # For this demo, we'll generate simulated historical data
+    Args:
+        location: Location name
+        
+    Returns:
+        Dictionary with simulated weather data
+    """
+    # Generate realistic but random weather data
+    temp = random.uniform(15, 30)
+    conditions = random.choice(['Clear', 'Clouds', 'Rain', 'Drizzle', 'Mist'])
     
-    if start_date is None:
-        start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+    descriptions = {
+        'Clear': 'clear sky',
+        'Clouds': random.choice(['few clouds', 'scattered clouds', 'broken clouds', 'overcast clouds']),
+        'Rain': random.choice(['light rain', 'moderate rain', 'heavy intensity rain']),
+        'Drizzle': 'light intensity drizzle',
+        'Mist': 'mist'
+    }
     
-    if end_date is None:
-        end_date = datetime.now().strftime("%Y-%m-%d")
+    icons = {
+        'Clear': '01d',
+        'Clouds': random.choice(['02d', '03d', '04d']),
+        'Rain': '10d',
+        'Drizzle': '09d',
+        'Mist': '50d'
+    }
     
-    # Parse dates
-    start = datetime.strptime(start_date, "%Y-%m-%d")
-    end = datetime.strptime(end_date, "%Y-%m-%d")
+    precipitation = 0
+    if conditions in ['Rain', 'Drizzle']:
+        precipitation = random.uniform(0.5, 10)
     
-    # Calculate number of days
-    days = (end - start).days + 1
+    # Create the simulated data structure similar to API response
+    weather = {
+        'location': location.split(',')[0],
+        'country': 'US',
+        'coordinates': {
+            'lat': random.uniform(30, 45),
+            'lon': random.uniform(-120, -70)
+        },
+        'temperature': temp,
+        'feels_like': temp - random.uniform(0, 2),
+        'humidity': random.uniform(40, 90),
+        'pressure': random.uniform(995, 1025),
+        'wind_speed': random.uniform(1, 15),
+        'wind_direction': random.uniform(0, 359),
+        'conditions': conditions,
+        'description': descriptions[conditions],
+        'icon': icons[conditions],
+        'precipitation': precipitation,
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'simulated': True
+    }
     
-    # Generate historical data
+    return weather
+
+def get_simulated_forecast(location, days=5):
+    """
+    Generate simulated forecast data for demonstration purposes
+    
+    Args:
+        location: Location name
+        days: Number of days to forecast
+        
+    Returns:
+        Dictionary with simulated forecast data
+    """
+    # Starting weather conditions
+    base_temp = random.uniform(15, 30)
+    current_conditions = random.choice(['Clear', 'Clouds', 'Rain', 'Drizzle', 'Mist'])
+    
+    # Create location info
+    location_info = {
+        'location': location.split(',')[0],
+        'country': 'US',
+        'coordinates': {
+            'lat': random.uniform(30, 45),
+            'lon': random.uniform(-120, -70)
+        }
+    }
+    
+    # Generate forecast items (8 per day, 3-hour intervals)
+    forecast = []
+    
+    for day in range(days):
+        for hour in [0, 3, 6, 9, 12, 15, 18, 21]:
+            # Calculate forecast time
+            forecast_time = datetime.now() + timedelta(days=day, hours=hour)
+            
+            # Evolve weather conditions with some continuity
+            # Temperature varies by time of day and has some day-to-day trend
+            hour_factor = -2 if hour < 6 or hour > 18 else 2  # Cooler at night, warmer during day
+            day_trend = random.uniform(-1, 1)  # Slight trend across days
+            temp = base_temp + hour_factor + day_trend + random.uniform(-2, 2)
+            
+            # Weather conditions sometimes change
+            if random.random() < 0.3:  # 30% chance of condition change
+                current_conditions = random.choice(['Clear', 'Clouds', 'Rain', 'Drizzle', 'Mist'])
+            
+            descriptions = {
+                'Clear': 'clear sky',
+                'Clouds': random.choice(['few clouds', 'scattered clouds', 'broken clouds', 'overcast clouds']),
+                'Rain': random.choice(['light rain', 'moderate rain', 'heavy intensity rain']),
+                'Drizzle': 'light intensity drizzle',
+                'Mist': 'mist'
+            }
+            
+            icons = {
+                'Clear': '01d' if 6 <= hour <= 18 else '01n',
+                'Clouds': random.choice(['02d', '03d', '04d']) if 6 <= hour <= 18 else random.choice(['02n', '03n', '04n']),
+                'Rain': '10d' if 6 <= hour <= 18 else '10n',
+                'Drizzle': '09d' if 6 <= hour <= 18 else '09n',
+                'Mist': '50d' if 6 <= hour <= 18 else '50n'
+            }
+            
+            precipitation = 0
+            if current_conditions in ['Rain', 'Drizzle']:
+                precipitation = random.uniform(0.5, 10)
+            
+            # Create forecast item
+            forecast_item = {
+                'date': forecast_time.strftime('%Y-%m-%d'),
+                'time': forecast_time.strftime('%H:%M:%S'),
+                'temperature': temp,
+                'feels_like': temp - random.uniform(0, 2),
+                'humidity': random.uniform(40, 90),
+                'pressure': random.uniform(995, 1025),
+                'wind_speed': random.uniform(1, 15),
+                'wind_direction': random.uniform(0, 359),
+                'conditions': current_conditions,
+                'description': descriptions[current_conditions],
+                'icon': icons[current_conditions],
+                'precipitation': precipitation,
+                'simulated': True
+            }
+            
+            forecast.append(forecast_item)
+    
+    return {
+        'location': location_info,
+        'forecast': forecast,
+        'simulated': True
+    }
+
+def get_simulated_historical(location, days=30):
+    """
+    Generate simulated historical weather data for demonstration purposes
+    
+    Args:
+        location: Location name
+        days: Number of days of historical data
+        
+    Returns:
+        List of dictionaries with simulated historical weather data
+    """
+    # Base weather parameters
+    base_temp = random.uniform(15, 30)
+    base_humidity = random.uniform(50, 80)
+    
+    # Generate data for each day
     historical_data = []
     
     for i in range(days):
-        date = start + timedelta(days=i)
-        month = date.month
+        # Calculate the date
+        date = datetime.now() - timedelta(days=days-i)
         
-        # Base conditions on season with some randomness
-        if 3 <= month <= 5:  # Spring
-            temp_max = random.uniform(15, 25)
-            temp_min = random.uniform(5, 15)
-            precipitation = random.uniform(0, 20) if random.random() < 0.4 else 0
-        elif 6 <= month <= 8:  # Summer
-            temp_max = random.uniform(25, 35)
-            temp_min = random.uniform(15, 25)
-            precipitation = random.uniform(0, 15) if random.random() < 0.3 else 0
-        elif 9 <= month <= 11:  # Fall
-            temp_max = random.uniform(10, 20)
-            temp_min = random.uniform(0, 10)
-            precipitation = random.uniform(0, 25) if random.random() < 0.5 else 0
-        else:  # Winter
-            temp_max = random.uniform(0, 10)
-            temp_min = random.uniform(-10, 0)
-            precipitation = random.uniform(0, 30) if random.random() < 0.6 else 0
+        # Generate daily weather with some trends and randomness
+        # Temperature varies with a small trend over time
+        temp_trend = (i / days) * random.uniform(-5, 5)
+        daily_temp = base_temp + temp_trend + random.uniform(-3, 3)
         
-        # Add some continuity with previous day for realism
-        if i > 0:
-            prev_temp_max = historical_data[i-1]['temp_max']
-            prev_temp_min = historical_data[i-1]['temp_min']
-            
-            # Smooth temperature changes
-            temp_max = (temp_max + prev_temp_max) / 2
-            temp_min = (temp_min + prev_temp_min) / 2
+        # Determine weather conditions (with some continuity)
+        if i > 0 and random.random() < 0.7:  # 70% chance of same condition
+            conditions = historical_data[-1]['conditions']
+        else:
+            conditions = random.choice(['Clear', 'Clouds', 'Rain', 'Drizzle', 'Mist'])
         
-        historical_data.append({
-            "date": date.strftime("%Y-%m-%d"),
-            "temp_max": round(temp_max, 1),
-            "temp_min": round(temp_min, 1),
-            "temp_avg": round((temp_max + temp_min) / 2, 1),
-            "precipitation": round(precipitation, 1),
-            "humidity": round(random.uniform(60, 90), 1),
-        })
+        descriptions = {
+            'Clear': 'clear sky',
+            'Clouds': random.choice(['few clouds', 'scattered clouds', 'broken clouds', 'overcast clouds']),
+            'Rain': random.choice(['light rain', 'moderate rain', 'heavy intensity rain']),
+            'Drizzle': 'light intensity drizzle',
+            'Mist': 'mist'
+        }
+        
+        precipitation = 0
+        if conditions in ['Rain', 'Drizzle']:
+            precipitation = random.uniform(0.5, 20)
+        
+        # Create the historical data point
+        data_point = {
+            'date': date.strftime('%Y-%m-%d'),
+            'location': location.split(',')[0],
+            'temperature': daily_temp,
+            'humidity': base_humidity + random.uniform(-10, 10),
+            'pressure': random.uniform(995, 1025),
+            'wind_speed': random.uniform(1, 15),
+            'wind_direction': random.uniform(0, 359),
+            'conditions': conditions,
+            'description': descriptions[conditions],
+            'precipitation': precipitation,
+            'simulated': True
+        }
+        
+        historical_data.append(data_point)
     
     return historical_data
 
-def get_weather_alerts(location=None):
+def format_weather_for_display(weather_data):
     """
-    Get weather alerts for the specified location
+    Format weather data for display in the application
     
     Args:
-        location: Location string (city, coordinates, etc.)
+        weather_data: Weather data dictionary from API or simulation
         
     Returns:
-        List of dictionaries with weather alerts
+        Dictionary with formatted weather data for display
     """
-    # In a production environment, this would call a real weather API for alerts
-    # For this demo, we'll generate some sample alerts
+    if not weather_data:
+        return None
     
-    current_date = datetime.now()
-    month = current_date.month
+    # Format current weather data
+    if 'timestamp' in weather_data:  # Current weather
+        display_data = {
+            'location': weather_data.get('location', 'Unknown'),
+            'date': datetime.now().strftime('%A, %B %d, %Y'),
+            'time': datetime.now().strftime('%I:%M %p'),
+            'temperature': f"{round(weather_data.get('temperature', 0))}°C",
+            'feels_like': f"{round(weather_data.get('feels_like', 0))}°C",
+            'humidity': f"{round(weather_data.get('humidity', 0))}%",
+            'wind': f"{round(weather_data.get('wind_speed', 0))} m/s",
+            'conditions': weather_data.get('conditions', 'Unknown'),
+            'description': weather_data.get('description', ''),
+            'icon': weather_data.get('icon', '01d'),
+            'precipitation': f"{weather_data.get('precipitation', 0)} mm",
+            'simulated': weather_data.get('simulated', False)
+        }
+        
+        return display_data
     
-    alerts = []
+    # Format forecast data
+    elif 'forecast' in weather_data:
+        location = weather_data.get('location', {}).get('location', 'Unknown')
+        
+        formatted_forecast = []
+        for item in weather_data['forecast']:
+            # Parse date and time
+            forecast_date = datetime.strptime(f"{item['date']} {item['time']}", '%Y-%m-%d %H:%M:%S')
+            
+            formatted_item = {
+                'date': forecast_date.strftime('%A, %B %d'),
+                'time': forecast_date.strftime('%I:%M %p'),
+                'temperature': f"{round(item.get('temperature', 0))}°C",
+                'humidity': f"{round(item.get('humidity', 0))}%",
+                'wind': f"{round(item.get('wind_speed', 0))} m/s",
+                'conditions': item.get('conditions', 'Unknown'),
+                'description': item.get('description', ''),
+                'icon': item.get('icon', '01d'),
+                'precipitation': f"{item.get('precipitation', 0)} mm",
+                'datetime': forecast_date,  # Include for sorting
+                'simulated': item.get('simulated', False)
+            }
+            
+            formatted_forecast.append(formatted_item)
+        
+        # Group forecast by day
+        days = {}
+        for item in formatted_forecast:
+            day_key = item['date']
+            if day_key not in days:
+                days[day_key] = []
+            days[day_key].append(item)
+        
+        return {
+            'location': location,
+            'days': days,
+            'simulated': weather_data.get('simulated', False)
+        }
     
-    # Generate seasonally appropriate alerts with low probability
-    if random.random() < 0.3:  # 30% chance of having an alert
-        if 3 <= month <= 5:  # Spring
-            alerts.append({
-                "type": random.choice(["Flood Warning", "Thunderstorm Warning", "Wind Advisory"]),
-                "severity": random.choice(["Minor", "Moderate", "Severe"]),
-                "time_start": current_date.strftime("%Y-%m-%d %H:%M"),
-                "time_end": (current_date + timedelta(hours=random.randint(6, 24))).strftime("%Y-%m-%d %H:%M"),
-                "description": "Localized flooding possible. Heavy rain expected. Take precautions."
-            })
-        elif 6 <= month <= 8:  # Summer
-            alerts.append({
-                "type": random.choice(["Heat Advisory", "Drought Warning", "Fire Weather Watch"]),
-                "severity": random.choice(["Minor", "Moderate", "Severe"]),
-                "time_start": current_date.strftime("%Y-%m-%d %H:%M"),
-                "time_end": (current_date + timedelta(hours=random.randint(24, 72))).strftime("%Y-%m-%d %H:%M"),
-                "description": "Extreme heat expected. Stay hydrated and limit outdoor activities."
-            })
-        elif 9 <= month <= 11:  # Fall
-            alerts.append({
-                "type": random.choice(["Frost Advisory", "Wind Advisory", "Flood Watch"]),
-                "severity": random.choice(["Minor", "Moderate", "Severe"]),
-                "time_start": current_date.strftime("%Y-%m-%d %H:%M"),
-                "time_end": (current_date + timedelta(hours=random.randint(6, 36))).strftime("%Y-%m-%d %H:%M"),
-                "description": "Potential frost overnight. Protect sensitive crops and plants."
-            })
-        else:  # Winter
-            alerts.append({
-                "type": random.choice(["Winter Storm Warning", "Freeze Warning", "Ice Storm Warning"]),
-                "severity": random.choice(["Minor", "Moderate", "Severe"]),
-                "time_start": current_date.strftime("%Y-%m-%d %H:%M"),
-                "time_end": (current_date + timedelta(hours=random.randint(12, 48))).strftime("%Y-%m-%d %H:%M"),
-                "description": "Winter storm approaching. Expect hazardous conditions and potential crop damage."
-            })
+    # Format historical data
+    else:
+        formatted_historical = []
+        
+        for item in weather_data:
+            # Parse date
+            historical_date = datetime.strptime(item['date'], '%Y-%m-%d')
+            
+            formatted_item = {
+                'date': historical_date.strftime('%A, %B %d'),
+                'temperature': f"{round(item.get('temperature', 0))}°C",
+                'humidity': f"{round(item.get('humidity', 0))}%",
+                'wind': f"{round(item.get('wind_speed', 0))} m/s",
+                'conditions': item.get('conditions', 'Unknown'),
+                'description': item.get('description', ''),
+                'precipitation': f"{item.get('precipitation', 0)} mm",
+                'datetime': historical_date,  # Include for sorting
+                'simulated': item.get('simulated', False)
+            }
+            
+            formatted_historical.append(formatted_item)
+        
+        return {
+            'location': weather_data[0]['location'] if weather_data else 'Unknown',
+            'historical_data': formatted_historical,
+            'simulated': weather_data[0].get('simulated', False) if weather_data else False
+        }
+
+def get_icon_url(icon_code):
+    """
+    Get URL for a weather icon
     
-    return alerts
+    Args:
+        icon_code: OpenWeatherMap icon code (e.g., '01d')
+        
+    Returns:
+        URL to the weather icon
+    """
+    return f"http://openweathermap.org/img/wn/{icon_code}@2x.png"
+
+def calculate_growing_degree_days(weather_data, base_temp=10):
+    """
+    Calculate Growing Degree Days (GDD) from weather data
+    
+    GDD = ((Tmax + Tmin) / 2) - Tbase
+    where Tbase is the base temperature for crop growth
+    
+    Args:
+        weather_data: List of daily weather data points
+        base_temp: Base temperature for crop growth (default 10°C)
+        
+    Returns:
+        Dictionary with GDD statistics
+    """
+    if not weather_data:
+        return None
+    
+    # Calculate GDD for each day
+    gdd_values = []
+    dates = []
+    
+    for day in weather_data:
+        # Get temperature values
+        temp = day.get('temperature')
+        
+        # Calculate GDD (daily)
+        daily_gdd = max(0, temp - base_temp)
+        gdd_values.append(daily_gdd)
+        
+        # Extract date for the chart
+        date = datetime.strptime(day['date'], '%Y-%m-%d') if isinstance(day['date'], str) else day['date']
+        dates.append(date)
+    
+    # Calculate cumulative GDD
+    cumulative_gdd = []
+    current_sum = 0
+    for gdd in gdd_values:
+        current_sum += gdd
+        cumulative_gdd.append(current_sum)
+    
+    # Calculate statistics
+    gdd_stats = {
+        'total_gdd': round(sum(gdd_values), 1),
+        'avg_daily_gdd': round(sum(gdd_values) / len(gdd_values), 1) if gdd_values else 0,
+        'max_daily_gdd': round(max(gdd_values), 1) if gdd_values else 0,
+        'min_daily_gdd': round(min(gdd_values), 1) if gdd_values else 0,
+        'chart_data': {
+            'dates': dates,
+            'daily_gdd': gdd_values,
+            'cumulative_gdd': cumulative_gdd
+        }
+    }
+    
+    return gdd_stats
+
+def calculate_chill_hours(weather_data, threshold_temp=7.2):
+    """
+    Calculate Chill Hours from weather data
+    
+    Chill Hours = number of hours where temperature is below threshold
+    
+    Args:
+        weather_data: List of hourly weather data points
+        threshold_temp: Threshold temperature (default 7.2°C / 45°F)
+        
+    Returns:
+        Dictionary with chill hour statistics
+    """
+    if not weather_data or 'forecast' not in weather_data:
+        return None
+    
+    # Calculate chill hours
+    chill_hours = 0
+    dates = []
+    daily_chill = {}
+    
+    for item in weather_data['forecast']:
+        # Get date and temperature
+        date = item['date']
+        temp = item.get('temperature')
+        
+        # Track dates for output
+        if date not in dates:
+            dates.append(date)
+            daily_chill[date] = 0
+        
+        # Count hours below threshold (each forecast item is typically 3 hours)
+        if temp < threshold_temp:
+            # Assume each forecast item represents 3 hours
+            chill_hours += 3
+            daily_chill[date] += 3
+    
+    # Prepare daily chart data
+    daily_values = [daily_chill[date] for date in dates]
+    
+    # Calculate statistics
+    chill_stats = {
+        'total_chill_hours': chill_hours,
+        'avg_daily_chill': round(chill_hours / len(dates), 1) if dates else 0,
+        'max_daily_chill': max(daily_values) if daily_values else 0,
+        'min_daily_chill': min(daily_values) if daily_values else 0,
+        'chart_data': {
+            'dates': dates,
+            'daily_chill': daily_values
+        }
+    }
+    
+    return chill_stats
