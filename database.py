@@ -13,22 +13,32 @@ logger = logging.getLogger(__name__)
 # Get database URL from environment (using PostgreSQL)
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 
-# Update the database name to SmartFarm
+# Update the database name to smartfarm (lowercase as PostgreSQL typically uses lowercase for database names)
 if DATABASE_URL:
     # Parse the existing URL to extract components
     import re
-    pattern = r'postgresql://([^:]+):([^@]+)@([^:]+):([^/]+)/([^?]+)(\?.*)?'
-    match = re.match(pattern, DATABASE_URL)
     
-    if match:
-        username, password, host, port, dbname, query_params = match.groups()
-        # Replace the database name with SmartFarm
-        DATABASE_URL = f"postgresql://{username}:{password}@{host}:{port}/SmartFarm"
-        if query_params:
-            DATABASE_URL += query_params
-        logger.info(f"Connected to SmartFarm database")
-    else:
-        logger.warning("Could not parse DATABASE_URL to update database name")
+    # Simple replacement approach
+    try:
+        # Extract up to the database name
+        base_url_parts = DATABASE_URL.split('/')
+        # Replace the database name part (which may include query parameters)
+        if len(base_url_parts) >= 4:
+            db_part = base_url_parts[3]
+            # Check if there are query parameters
+            if '?' in db_part:
+                db_name, query_params = db_part.split('?', 1)
+                base_url_parts[3] = f"smartfarm?{query_params}"
+            else:
+                base_url_parts[3] = "smartfarm"
+            
+            # Reconstruct the URL
+            DATABASE_URL = '/'.join(base_url_parts)
+            logger.info("Connected to smartfarm database")
+        else:
+            logger.warning("Unexpected DATABASE_URL format, could not replace database name")
+    except Exception as e:
+        logger.warning(f"Error updating database name: {e}")
 
 # PostgreSQL URLs from Replit sometimes start with postgres:// instead of postgresql://
 # SQLAlchemy requires postgresql:// format
