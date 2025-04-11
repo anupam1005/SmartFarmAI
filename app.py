@@ -2,7 +2,7 @@ import streamlit as st
 import os
 from datetime import datetime
 from database import create_tables, init_db
-
+from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text
 # Import page modules
 from pages import dashboard, crop_recommendation, pest_detection, resource_management, weather
 from utils.weather_api import get_current_weather, format_weather_for_display, get_icon_url
