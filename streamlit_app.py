@@ -4,27 +4,18 @@ This file is configured to run Streamlit with specific settings for external acc
 """
 import os
 import sys
-import streamlit.web.bootstrap as bootstrap
-from streamlit.web.server import Server
+import streamlit as st
+import app  # Import the main app to run it
 
-# Add the current directory to the path
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
-
-# Import the app module
-from app import main
-
-# Set up Streamlit config
 if __name__ == "__main__":
-    # Configuration for external access
-    bootstrap_args = {
-        "server.address": "0.0.0.0",
-        "server.port": 5000,
-        "server.headless": True,
-        "server.enableCORS": False,
-        "server.enableXsrfProtection": False,
-        "browser.serverAddress": "0.0.0.0",
-        "global.developmentMode": False
-    }
+    # Force environment variables for external access
+    os.environ["STREAMLIT_SERVER_ADDRESS"] = "0.0.0.0"
+    os.environ["STREAMLIT_SERVER_PORT"] = "5000"
+    os.environ["STREAMLIT_SERVER_HEADLESS"] = "true"
+    os.environ["STREAMLIT_SERVER_ENABLE_CORS"] = "false"
+    os.environ["STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION"] = "false"
+    os.environ["STREAMLIT_BROWSER_SERVER_PORT"] = "5000"
+    os.environ["STREAMLIT_BROWSER_SERVER_ADDRESS"] = "0.0.0.0"
     
-    # Run the Streamlit application with these arguments
-    bootstrap.run(main, "", args=[], flag_options=bootstrap_args)
+    # Run the main app
+    app.main()

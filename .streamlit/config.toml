@@ -5,6 +5,9 @@ port = 5000
 enableCORS = false
 enableXsrfProtection = false
 runOnSave = true
+maxUploadSize = 200
+maxMessageSize = 200
+enableWebsocketCompression = false
 
 [browser]
 serverAddress = "0.0.0.0"
@@ -13,6 +16,7 @@ serverPort = 5000
 
 [global]
 developmentMode = false
+showWarningOnDirectExecution = false
 
 [theme]
 primaryColor = "#2E7D32"
@@ -20,3 +24,7 @@ backgroundColor = "#F5F7F9"
 secondaryBackgroundColor = "#E6EEE6"
 textColor = "#262730"
 font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = true
