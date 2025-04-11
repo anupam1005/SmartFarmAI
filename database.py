@@ -13,9 +13,22 @@ logger = logging.getLogger(__name__)
 # Get database URL from environment (using PostgreSQL)
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 
-# If you want to use a custom database connection instead of the environment variable,
-# uncomment and modify the following line:
-# DATABASE_URL = "postgresql://username:password@host:port/SmartFarm"
+# Update the database name to SmartFarm
+if DATABASE_URL:
+    # Parse the existing URL to extract components
+    import re
+    pattern = r'postgresql://([^:]+):([^@]+)@([^:]+):([^/]+)/([^?]+)(\?.*)?'
+    match = re.match(pattern, DATABASE_URL)
+    
+    if match:
+        username, password, host, port, dbname, query_params = match.groups()
+        # Replace the database name with SmartFarm
+        DATABASE_URL = f"postgresql://{username}:{password}@{host}:{port}/SmartFarm"
+        if query_params:
+            DATABASE_URL += query_params
+        logger.info(f"Connected to SmartFarm database")
+    else:
+        logger.warning("Could not parse DATABASE_URL to update database name")
 
 # PostgreSQL URLs from Replit sometimes start with postgres:// instead of postgresql://
 # SQLAlchemy requires postgresql:// format

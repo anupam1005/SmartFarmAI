@@ -304,5 +304,28 @@ def initialize_database():
     else:
         logger.info(f"Database already contains {existing_farms} farms. Skipping demo data population.")
 
+def reset_database():
+    """Reset the database by dropping all tables and recreating them"""
+    try:
+        from database import Base, engine
+        
+        logger.warning("⚠️ Dropping all tables... This will delete all data! ⚠️")
+        Base.metadata.drop_all(engine)
+        logger.info("All tables dropped successfully")
+        
+        # Reinitialize the database
+        initialize_database()
+        logger.info("Database has been reset and reinitialized with demo data")
+        return True
+    except Exception as e:
+        logger.error(f"Error resetting database: {e}")
+        return False
+
 if __name__ == "__main__":
-    initialize_database()
+    import sys
+    
+    if len(sys.argv) > 1 and sys.argv[1] == '--reset':
+        # Reset database if --reset flag is provided
+        reset_database()
+    else:
+        initialize_database()
