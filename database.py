@@ -11,10 +11,19 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Get database URL from environment (using PostgreSQL)
-DATABASE_URL = os.environ.get('DATABASE_URL')
+DATABASE_URL = os.environ.get('DATABASE_URL', '')
+
+# PostgreSQL URLs from Replit sometimes start with postgres:// instead of postgresql://
+# SQLAlchemy requires postgresql:// format
+if DATABASE_URL.startswith('postgres://'):
+    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
 
 # Create SQLAlchemy engine and session
-engine = create_engine(DATABASE_URL)
+if DATABASE_URL:
+    engine = create_engine(DATABASE_URL)
+else:
+    logger.error("DATABASE_URL environment variable is not set")
+    raise ValueError("DATABASE_URL environment variable is not set")
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
